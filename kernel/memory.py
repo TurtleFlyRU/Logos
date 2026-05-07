@@ -229,6 +229,40 @@ class Memory:
 
         return eid
 
+    def respond(self, draft: str | None, query: str,
+                referenced_files: int = 0) -> dict[str, Any]:
+        """Полный цикл: оценка сложности → черновик → верификация → ответ."""
+        complexity = self.assess_complexity(query, referenced_files)
+        needs_verify = complexity["complexity"]["level"] in ("high", "critical")
+
+        result = {
+            "query": query,
+            "complexity": complexity["complexity"],
+            "needs_expansion": complexity["needs_expansion"],
+            "verification": None,
+            "final_draft": draft or "",
+        }
+
+        if needs_verify and draft:
+            import sys as _sys
+            ver_path = REPO_ROOT / "experiments" / "003-verification" / "src"
+            _sys.path.insert(0, str(ver_path))
+            from verifier import Verifier  # type: ignore[import-untyped]
+            v = Verifier()
+            verification = v.verify_and_format(draft, query)
+            result["verification"] = {
+                "issues_found": len(verification["issues"]),
+                "needs_correction": verification["needs_correction"],
+                "supporting_principles": len(verification["supporting"]),
+                "corrections": verification["corrections"][:3],
+            }
+            result["final_draft"] = verification["corrected_draft"]
+
+        if complexity["needs_expansion"]:
+            result["budget_signal"] = complexity["recommendation"]
+
+        return result
+
     def _checkpoint(self) -> None:
         """Контрольная точка: пишет дневник, коммитит в Git.
         Позволяет не потерять данные при аварийном отключении.
