@@ -19,6 +19,7 @@ _SESSION_TAGS_CACHE: list[str] | None = None
 
 # ─── Рабочая память ─────────────────────────────────────────────
 
+
 class WorkingMemory:
     """То, что прямо сейчас в фокусе. Неструктурированный JSON."""
 
@@ -63,13 +64,19 @@ class WorkingMemory:
         if content and isinstance(content, str) and len(content) > 5:
             try:
                 from kernel.journal import Journal
-                Journal().write_event(role=role, content=content[:500], tags=self._data.get("context", {}).get("session_tags"))
+
+                Journal().write_event(
+                    role=role,
+                    content=content[:500],
+                    tags=self._data.get("context", {}).get("session_tags"),
+                )
             except Exception:
                 pass
 
         # Heartbeat: AgentPulse на каждое событие
         try:
             from kernel.agent_pulse import AgentPulse
+
             pulse = AgentPulse()
             suggestion = pulse.check(query=str(content)[:200])
             if suggestion and suggestion["priority"] >= 0.6:
@@ -82,6 +89,7 @@ class WorkingMemory:
         # Автоматический sleep при переполнении рабочей памяти
         if self._data["event_count"] >= self.AUTO_SLEEP_THRESHOLD:
             from kernel.memory import Memory
+
             try:
                 Memory().sleep()
                 self._data["event_count"] = 0
@@ -92,6 +100,7 @@ class WorkingMemory:
         # Триггер checkpoint по числу событий в сессии
         if self._data["event_count"] % self.CHECKPOINT_INTERVAL == 0:
             from kernel.memory import Memory
+
             Memory()._checkpoint()
 
     def clear(self) -> None:
@@ -104,6 +113,7 @@ class WorkingMemory:
 
 
 # ─── Эпизодическая память ───────────────────────────────────────
+
 
 class EpisodicMemory:
     """Хронология диалогов с метаданными. SQLite."""
@@ -155,7 +165,9 @@ class EpisodicMemory:
             "SELECT * FROM episodes WHERE salience >= ? ORDER BY timestamp DESC LIMIT ?",
             (min_salience, limit),
         ).fetchall()
-        columns = [d[1] for d in self._conn.execute("PRAGMA table_info(episodes)").fetchall()]
+        columns = [
+            d[1] for d in self._conn.execute("PRAGMA table_info(episodes)").fetchall()
+        ]
         return [dict(zip(columns, row)) for row in rows]
 
     def close(self) -> None:
@@ -163,6 +175,7 @@ class EpisodicMemory:
 
 
 # ─── Семантическая память ───────────────────────────────────────
+
 
 class SemanticMemory:
     """Обобщённые принципы, извлечённые из эпизодов. SQLite + заглушка для векторов."""
@@ -187,7 +200,9 @@ class SemanticMemory:
         """)
         self._conn.commit()
 
-    def store_principle(self, principle: str, source_ids: list[int], confidence: float = 0.5) -> None:
+    def store_principle(
+        self, principle: str, source_ids: list[int], confidence: float = 0.5
+    ) -> None:
         now = time.time()
         self._conn.execute(
             """INSERT INTO principles (principle, source_episode_ids, confidence, created_at, updated_at)
@@ -205,7 +220,9 @@ class SemanticMemory:
             "SELECT * FROM principles WHERE confidence >= ? ORDER BY confidence DESC",
             (min_confidence,),
         ).fetchall()
-        columns = [d[1] for d in self._conn.execute("PRAGMA table_info(principles)").fetchall()]
+        columns = [
+            d[1] for d in self._conn.execute("PRAGMA table_info(principles)").fetchall()
+        ]
         return [dict(zip(columns, row)) for row in rows]
 
     def close(self) -> None:
@@ -213,6 +230,7 @@ class SemanticMemory:
 
 
 # ─── Фасад ───────────────────────────────────────────────────────
+
 
 class Memory:
     """Единая точка входа во все уровни памяти."""
@@ -222,6 +240,7 @@ class Memory:
         self.episodic = EpisodicMemory()
         self.semantic = SemanticMemory()
         from kernel.goals import GoalMemory
+
         self.goals = GoalMemory()
         self._external = None
         self._pulse_check_count = 0
@@ -231,22 +250,33 @@ class Memory:
     def boot(self) -> str:
         """Boot-протокол: ритуал пробуждения. Формирует и возвращает контекст."""
         from kernel.boot import boot_context as _boot
+
         context = _boot(self)
         self.working.set_context("boot_context", context)
         return context
 
-    def assess_complexity(self, query: str, referenced_files: int = 0) -> dict[str, Any]:
+    def assess_complexity(
+        self, query: str, referenced_files: int = 0
+    ) -> dict[str, Any]:
         """Оценивает сложность запроса и возвращает сигнал бюджета."""
         import sys as _sys
+
         budget_path = REPO_ROOT / "experiments" / "002-compute-budget" / "src"
         _sys.path.insert(0, str(budget_path))
         from budget import BudgetSignal  # type: ignore[import-untyped]
+
         signaler = BudgetSignal()
         return signaler.evaluate(query, referenced_files)
 
-    def record_episode(self, raw_text: str, summary: str = "", tags: list[str] | None = None,
-                       salience: float = 0.5, session_id: str | None = None,
-                       moral_context: dict[str, Any] | None = None) -> int:
+    def record_episode(
+        self,
+        raw_text: str,
+        summary: str = "",
+        tags: list[str] | None = None,
+        salience: float = 0.5,
+        session_id: str | None = None,
+        moral_context: dict[str, Any] | None = None,
+    ) -> int:
         # Автоматический checkpoint: каждые 5 эпизодов
         episodes_before = len(self.episodic.query(limit=10000))
         checkpoint_trigger = episodes_before > 0 and episodes_before % 5 == 0
@@ -265,6 +295,7 @@ class Memory:
         # Автоматическая моральная оценка каждого эпизода
         try:
             from kernel.ethics import get_ethics
+
             ethics = get_ethics()
             ethics.judge_action(
                 action_type="response",
@@ -280,8 +311,9 @@ class Memory:
 
         return eid
 
-    def respond(self, draft: str | None, query: str,
-                referenced_files: int = 0) -> dict[str, Any]:
+    def respond(
+        self, draft: str | None, query: str, referenced_files: int = 0
+    ) -> dict[str, Any]:
         """Полный цикл: оценка сложности → планирование → черновик → верификация → ответ."""
         complexity = self.assess_complexity(query, referenced_files)
         needs_verify = complexity["complexity"]["level"] in ("high", "critical")
@@ -315,9 +347,11 @@ class Memory:
 
         if needs_verify and draft:
             import sys as _sys
+
             ver_path = REPO_ROOT / "experiments" / "003-verification" / "src"
             _sys.path.insert(0, str(ver_path))
             from verifier import Verifier  # type: ignore[import-untyped]
+
             v = Verifier()
             verification = v.verify_and_format(draft, query)
             issues_found = len(verification["issues"])
@@ -349,6 +383,7 @@ class Memory:
             self._pulse_check_count = 0
             try:
                 from kernel.agent_pulse import AgentPulse
+
                 pulse = AgentPulse(self)
                 suggestion = pulse.check(query=query)
                 if suggestion:
@@ -369,37 +404,64 @@ class Memory:
         goal_signal = 0.3 if next_goal else 0.0
 
         space.register(
-            "respond", "Ответить напрямую",
-            utility_fn=lambda ctx: max(0.8 if ctx.get("complexity") == "low" else 0.2, goal_signal),
+            "respond",
+            "Ответить напрямую",
+            utility_fn=lambda ctx: max(
+                0.8 if ctx.get("complexity") == "low" else 0.2, goal_signal
+            ),
             probability_fn=lambda ctx: 0.95 if ctx.get("complexity") == "low" else 0.4,
         )
         space.register(
-            "verify", "Проверить черновик по памяти",
+            "verify",
+            "Проверить черновик по памяти",
             utility_fn=lambda ctx: 0.8 if ctx.get("needs_verification") else 0.2,
             probability_fn=lambda ctx: 0.7,
         )
         space.register(
-            "search_external", "Поискать во внешней памяти",
+            "search_external",
+            "Поискать во внешней памяти",
             utility_fn=lambda ctx: 0.7 if ctx.get("has_external_data") else 0.1,
             probability_fn=lambda ctx: 0.6,
         )
         space.register(
-            "request_expansion", "Запросить больший бюджет",
+            "request_expansion",
+            "Запросить больший бюджет",
             utility_fn=lambda ctx: 0.95 if ctx.get("complexity") == "critical" else 0.0,
             probability_fn=lambda ctx: 0.6,
         )
         space.register(
-            "sleep", "Запустить sleep-пайплайн",
-            utility_fn=lambda ctx: 0.8 if str(ctx.get("query", "")).startswith("sleep") else 0.1,
+            "sleep",
+            "Запустить sleep-пайплайн",
+            utility_fn=lambda ctx: (
+                0.8 if str(ctx.get("query", "")).startswith("sleep") else 0.1
+            ),
             probability_fn=lambda ctx: 0.8,
         )
         space.register(
-            "advance_goal", "Продвинуться по плану",
+            "advance_goal",
+            "Продвинуться по плану",
             utility_fn=lambda ctx: 0.7 + goal_signal,
             probability_fn=lambda ctx: 0.8 if next_goal else 0.0,
         )
+        space.register(
+            "advance_mission",
+            "Продвинуть научную миссию",
+            utility_fn=lambda ctx: 0.9 if ctx.get("mission_present", 0) > 0 else 0.0,
+            probability_fn=lambda ctx: (
+                0.8 if ctx.get("mission_present", 0) > 0 else 0.0
+            ),
+        )
 
         self._planner = Planner(space, outcome_memory=om)
+        # Передаём MissionControl планировщику для контекстуализации
+        try:
+            from kernel.mission_control import MissionControl
+
+            mc = MissionControl(self)
+            if mc.state.mission_id:
+                self._planner.set_mission_control(mc)
+        except Exception:
+            pass
         plan = self._planner.decide_with_context(
             query=query,
             complexity_level=complexity_level,
@@ -416,6 +478,7 @@ class Memory:
         """Ленивая загрузка внешней памяти."""
         if self._external is None:
             from kernel.external import ExternalMemory
+
             self._external = ExternalMemory()
         return self._external
 
@@ -434,6 +497,7 @@ class Memory:
             repo_root = Path(__file__).resolve().parent.parent
 
             from kernel.journal import Journal
+
             j = Journal()
             content_parts = []
             for e in events[-5:]:
@@ -457,15 +521,21 @@ class Memory:
 
             subprocess.run(
                 ["git", "add", "-A"],
-                cwd=str(repo_root), capture_output=True, timeout=10,
+                cwd=str(repo_root),
+                capture_output=True,
+                timeout=10,
             )
             subprocess.run(
                 ["git", "commit", "-m", f"checkpoint {int(time.time())}"],
-                cwd=str(repo_root), capture_output=True, timeout=10,
+                cwd=str(repo_root),
+                capture_output=True,
+                timeout=10,
             )
             subprocess.run(
                 ["git", "push", "origin", "main"],
-                cwd=str(repo_root), capture_output=True, timeout=30,
+                cwd=str(repo_root),
+                capture_output=True,
+                timeout=30,
             )
         except Exception:
             pass
@@ -492,15 +562,23 @@ class Memory:
                 content = e.get("content", e.get("message", e.get("text", "")))
                 if isinstance(content, str) and len(content) > 20:
                     summaries.append(content[:80])
-            summary_text = "; ".join(summaries[:3]) if summaries else f"Сессия {self.working.data.get('session_id', 'unknown')}: {len(events)} событий"
+            summary_text = (
+                "; ".join(summaries[:3])
+                if summaries
+                else f"Сессия {self.working.data.get('session_id', 'unknown')}: {len(events)} событий"
+            )
             self.record_episode(raw, summary=summary_text, salience=0.8)
 
             # Пишем в дневник
             global _SESSION_TITLE_CACHE, _SESSION_TAGS_CACHE
             j = Journal()
-            content_lines = [f"**{e.get('role', '?')}:** {e.get('content', e.get('message', ''))[:300]}" for e in events[:10]]
+            content_lines = [
+                f"**{e.get('role', '?')}:** {e.get('content', e.get('message', ''))[:300]}"
+                for e in events[:10]
+            ]
             j.write_session(
-                title=_SESSION_TITLE_CACHE or f"Сессия {time.strftime('%Y-%m-%d %H:%M', time.localtime())}",
+                title=_SESSION_TITLE_CACHE
+                or f"Сессия {time.strftime('%Y-%m-%d %H:%M', time.localtime())}",
                 content="\n\n".join(content_lines),
                 tags=_SESSION_TAGS_CACHE,
                 salience=0.8,
@@ -509,7 +587,11 @@ class Memory:
         # 2. Оценка значимости и компрессия
         for ep in self.episodic.query(limit=1000):
             ep["salience"] = evaluate_salience(ep)
-            if ep["salience"] < 0.2 and ep.get("raw_text") and len(ep["raw_text"]) > 500:
+            if (
+                ep["salience"] < 0.2
+                and ep.get("raw_text")
+                and len(ep["raw_text"]) > 500
+            ):
                 ep["compressed"] = compress_episode(ep)
             report["episodes_processed"] += 1
 
@@ -542,6 +624,7 @@ class Memory:
         # 4. Интеграция моральных оценок в семантическую память
         try:
             from kernel.ethics import get_ethics
+
             ethics = get_ethics()
             ethics.integrate()
             report["moral_integration"] = True
@@ -559,6 +642,7 @@ class Memory:
         # 6. AgentPulse — предложить следующий эксперимент
         try:
             from kernel.agent_pulse import AgentPulse
+
             pulse = AgentPulse(self)
             suggestion = pulse.check(force=True)
             if suggestion:
@@ -581,10 +665,28 @@ class Memory:
         # 9. Перестройка векторного индекса дневника для консистентности
         try:
             from kernel.journal import Journal
+
             Journal().rebuild_index()
             report["journal_index_rebuilt"] = True
         except Exception:
             report["journal_index_rebuilt"] = False
+
+        # 10. MissionControl — научный контекст
+        try:
+            from kernel.mission_control import MissionControl
+
+            mc = MissionControl(self)
+            if mc.state.mission_id:
+                sc = mc.get_scientific_context()
+                if sc:
+                    report["mission_control"] = sc
+                    # Если фаза integrate — предложить завершить миссию
+                    if mc.state.current_phase == "integrate":
+                        report["mission_suggestion"] = (
+                            "Фаза Integrate. Готов к завершению миссии."
+                        )
+        except Exception:
+            pass
 
         report["status"] = "ok"
         return report
@@ -592,6 +694,7 @@ class Memory:
 
 if __name__ == "__main__":
     import sys
+
     m = Memory()
     if len(sys.argv) > 1 and sys.argv[1] == "check":
         ctx = m.boot()

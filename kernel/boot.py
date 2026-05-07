@@ -40,14 +40,15 @@ def boot_context(memory: Any) -> str:
     # 2. Кто вокруг — последний содержательный эпизод
     episodes = memory.episodic.query(limit=50, min_salience=0.0)
     meaningful = [
-        e for e in episodes
+        e
+        for e in episodes
         if e.get("summary") and "*пустой checkpoint*" not in e.get("summary", "")
     ]
     if meaningful:
         last = meaningful[0]
         summary = last.get("summary", "")[:200]
         ts = last.get("timestamp", 0)
-        date_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(ts))
+        date_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
         lines.append(f"— Последняя сессия ({date_str}):")
         lines.append(f"  {summary}")
         if len(meaningful) > 1:
@@ -61,10 +62,11 @@ def boot_context(memory: Any) -> str:
     # 3. Здоровье — самочувствие
     try:
         from kernel.health import memory_report
+
         report = memory_report()
         status = "✓ хорошо" if report["health"] == "ok" else "⚠ есть вопросы"
         wm = report["working"]
-        wm_info = f"{wm['event_count']} событий" if wm['event_count'] > 0 else "пуста"
+        wm_info = f"{wm['event_count']} событий" if wm["event_count"] > 0 else "пуста"
         ep_info = f"{report['episodic']['total_episodes']} эпизодов (ср.знач. {report['episodic']['avg_salience']:.2f})"
         sm_info = f"{report['semantic']['principles']} принципов"
         lines.append("— Самочувствие:")
@@ -78,6 +80,7 @@ def boot_context(memory: Any) -> str:
     # 4. Что сегодня важно — intent из AgentPulse
     try:
         from kernel.agent_pulse import AgentPulse
+
         pulse = AgentPulse(memory)
         suggestion = pulse.check(force=True)
         if suggestion:
@@ -97,7 +100,23 @@ def boot_context(memory: Any) -> str:
     except Exception:
         pass
 
-    # 6. Запись в рабочую память
+    # 7. Научный контекст — MissionControl
+    try:
+        from kernel.mission_control import MissionControl
+
+        mc = MissionControl(memory)
+        sc = mc.get_scientific_context()
+        if sc:
+            lines.append("— Научный контекст:")
+            lines.append(sc)
+            lines.append("")
+            if mc.state.human_review_needed:
+                lines.append("  ⚠ Ожидает ревью человека.")
+                lines.append("")
+    except Exception:
+        pass
+
+    # 8. Запись в рабочую память
     boot_text = "\n".join(lines)
 
     wm = memory.working

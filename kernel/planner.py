@@ -64,16 +64,21 @@ class OutcomeMemory:
             self._outcomes = json.loads(self.path.read_text())
 
     def record(self, context_sig: str, action: str, success: bool) -> None:
-        self._outcomes.append({
-            "context_sig": context_sig,
-            "action": action,
-            "success": success,
-            "timestamp": time.time(),
-        })
-        self.path.write_text(json.dumps(self._outcomes[-500:], indent=2, ensure_ascii=False))
+        self._outcomes.append(
+            {
+                "context_sig": context_sig,
+                "action": action,
+                "success": success,
+                "timestamp": time.time(),
+            }
+        )
+        self.path.write_text(
+            json.dumps(self._outcomes[-500:], indent=2, ensure_ascii=False)
+        )
 
-    def get_success_rate(self, action: str, context_sig: str | None = None,
-                         window: int = 50) -> float:
+    def get_success_rate(
+        self, action: str, context_sig: str | None = None, window: int = 50
+    ) -> float:
         relevant = [o for o in self._outcomes[-window:] if o["action"] == action]
         if not relevant:
             return 0.5
@@ -107,9 +112,13 @@ class ActionSpace:
         self._actions: dict[str, Action] = {}
         self._outcome_memory = outcome_memory
 
-    def register(self, name: str, description: str,
-                 utility_fn: Callable[[dict[str, Any]], float] | None = None,
-                 probability_fn: Callable[[dict[str, Any]], float] | None = None) -> Action:
+    def register(
+        self,
+        name: str,
+        description: str,
+        utility_fn: Callable[[dict[str, Any]], float] | None = None,
+        probability_fn: Callable[[dict[str, Any]], float] | None = None,
+    ) -> Action:
         action = Action(
             name=name,
             description=description,
@@ -137,7 +146,8 @@ class ActionSpace:
             sig = OutcomeMemory.make_context_sig(context)
             empirical = self._outcome_memory.get_success_rate(action.name, sig)
             sig_total = sum(
-                1 for o in self._outcome_memory._outcomes[-200:]
+                1
+                for o in self._outcome_memory._outcomes[-200:]
                 if o["action"] == action.name and o["context_sig"] == sig
             )
             if sig_total >= 3:
@@ -148,10 +158,17 @@ class ActionSpace:
 class Planner:
     """Принимает контекст, оценивает действия (с учётом опыта), выбирает лучшее."""
 
-    def __init__(self, action_space: ActionSpace | None = None,
-                 outcome_memory: OutcomeMemory | None = None) -> None:
+    def __init__(
+        self,
+        action_space: ActionSpace | None = None,
+        outcome_memory: OutcomeMemory | None = None,
+    ) -> None:
         self.space = action_space or ActionSpace()
         self._om = outcome_memory
+        self._mission_control: Any = None
+
+    def set_mission_control(self, mc: Any) -> None:
+        self._mission_control = mc
 
     def decide(self, context: dict[str, Any]) -> Plan:
         start = time.perf_counter()
@@ -164,13 +181,15 @@ class Planner:
             probability = self.space.compute_probability(action, context)
             expected = utility * probability
 
-            candidates.append({
-                "name": name,
-                "description": action.description,
-                "utility": round(utility, 3),
-                "probability": round(probability, 3),
-                "expected_utility": round(expected, 3),
-            })
+            candidates.append(
+                {
+                    "name": name,
+                    "description": action.description,
+                    "utility": round(utility, 3),
+                    "probability": round(probability, 3),
+                    "expected_utility": round(expected, 3),
+                }
+            )
 
         if not candidates:
             return Plan(
@@ -192,7 +211,9 @@ class Planner:
         )
 
     def _reason(self, best: dict, candidates: list[dict]) -> str:
-        other_scores = [c["expected_utility"] for c in candidates if c["name"] != best["name"]]
+        other_scores = [
+            c["expected_utility"] for c in candidates if c["name"] != best["name"]
+        ]
         margin = best["expected_utility"] - (max(other_scores) if other_scores else 0)
         return (
             f"selected '{best['name']}' (EU={best['expected_utility']:.3f}, "
@@ -200,15 +221,21 @@ class Planner:
             f"margin={margin:.3f})"
         )
 
-    def record_outcome(self, action: str, context: dict[str, Any], success: bool) -> None:
+    def record_outcome(
+        self, action: str, context: dict[str, Any], success: bool
+    ) -> None:
         om = self._om or self.space._outcome_memory
         if om:
             sig = OutcomeMemory.make_context_sig(context)
             om.record(sig, action, success)
 
-    def decide_with_context(self, query: str, complexity_level: str = "medium",
-                            memory_summary: str | None = None,
-                            recent_topics: list[str] | None = None) -> Plan:
+    def decide_with_context(
+        self,
+        query: str,
+        complexity_level: str = "medium",
+        memory_summary: str | None = None,
+        recent_topics: list[str] | None = None,
+    ) -> Plan:
         context = {
             "query": query,
             "complexity": complexity_level,
@@ -217,4 +244,19 @@ class Planner:
             "has_external_data": False,
             "needs_verification": complexity_level in ("high", "critical"),
         }
+
+        # Добавляем сигнал MissionControl в контекст
+        mission_signal = 0.0
+        try:
+            if self._mission_control and self._mission_control.state.mission_id:
+                mission_signal = 0.6
+                context["has_mission"] = True
+                context["mission_phase"] = self._mission_control.state.current_phase
+                context["mission_goal"] = self._mission_control.state.goal[:100]
+        except Exception:
+            pass
+
+        if mission_signal > 0:
+            context["mission_present"] = mission_signal
+
         return self.decide(context)
