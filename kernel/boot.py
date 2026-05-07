@@ -87,7 +87,17 @@ def boot_context(memory: Any) -> str:
     except Exception:
         pass
 
-    # 5. Запись в рабочую память
+    # 5. Мой план — долгосрочные цели
+    try:
+        plan_lines = memory.goals.summary()
+        if plan_lines:
+            lines.append("— Мой план:")
+            lines.append(plan_lines)
+            lines.append("")
+    except Exception:
+        pass
+
+    # 6. Запись в рабочую память
     boot_text = "\n".join(lines)
 
     wm = memory.working

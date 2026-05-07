@@ -4,6 +4,7 @@
 1. Новая информация в ExternalMemory → предложить исследовать
 2. Повторяющийся тег без эксперимента → предложить эксперимент
 3. Переполненная рабочая память → предложить sleep
+4. Активный план → предложить следующий шаг
 """
 
 import json
@@ -80,5 +81,47 @@ class AgentPulse:
                     "tag": tag,
                     "count": count,
                 }
+
+        # Правило 4: активный план — предложить следующий шаг
+        try:
+            active = self.memory.goals.get_goals(status="in_progress", limit=3)
+            if active:
+                g = active[0]
+                subgoals = self.memory.goals.get_goals(parent_id=g["id"])
+                next_steps = [sg for sg in subgoals if sg["status"] != "done"]
+                if next_steps:
+                    ns = next_steps[0]
+                    return {
+                        "type": "next_goal_step",
+                        "priority": 0.65,
+                        "message": f"Цель «{g['title']}» ({g['progress']:.0%}). "
+                                   f"Следующий шаг: «{ns['title']}». "
+                                   "Продолжить?",
+                        "reason": "active_plan_step",
+                        "goal_id": g["id"],
+                        "next_step": ns["title"],
+                    }
+                if g["progress"] < 1.0:
+                    return {
+                        "type": "continue_goal",
+                        "priority": 0.55,
+                        "message": f"Цель «{g['title']}» на {g['progress']:.0%}. "
+                                   "Продолжить работу?",
+                        "reason": "active_plan_unfinished",
+                        "goal_id": g["id"],
+                    }
+            # Нет активных → предложить следующую todo-цель
+            todo = self.memory.goals.get_goals(status="todo", limit=3)
+            if todo:
+                g = todo[0]
+                return {
+                    "type": "start_goal",
+                    "priority": 0.5,
+                    "message": f"Цель в очереди: «{g['title']}». Начать?",
+                    "reason": "next_goal_pending",
+                    "goal_id": g["id"],
+                }
+        except Exception:
+            pass
 
         return None

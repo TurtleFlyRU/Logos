@@ -221,6 +221,8 @@ class Memory:
         self.working = WorkingMemory()
         self.episodic = EpisodicMemory()
         self.semantic = SemanticMemory()
+        from kernel.goals import GoalMemory
+        self.goals = GoalMemory()
         self._external = None
         self._pulse_check_count = 0
         self._pulse_interval = 5  # проверка agent pulse раз в 5 respond()
@@ -555,10 +557,19 @@ class Memory:
         except Exception:
             pass
 
-        # 7. Очистка рабочей памяти
+        # 7. Чекпоинт активного плана
+        try:
+            plan = self.goals.get_active_plan()
+            report["active_goals"] = len(plan)
+            if plan:
+                report["top_goal"] = plan[0]["title"]
+        except Exception:
+            report["active_goals"] = -1
+
+        # 8. Очистка рабочей памяти
         self.working.clear()
 
-        # 8. Перестройка векторного индекса дневника для консистентности
+        # 9. Перестройка векторного индекса дневника для консистентности
         try:
             from kernel.journal import Journal
             Journal().rebuild_index()
