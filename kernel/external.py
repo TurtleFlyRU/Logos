@@ -12,9 +12,7 @@ from typing import Any
 
 import numpy as np
 
-from kernel.memory import DATA_ROOT, REPO_ROOT
-
-MODEL_PATH = REPO_ROOT / "rubert-tiny2"
+from kernel.config import EXTERNAL_DB_PATH, EXTERNAL_VECTOR_INDEX_PATH, RUBERT_MODEL_PATH as MODEL_PATH
 
 
 class _Embedder:
@@ -44,18 +42,13 @@ class _Embedder:
 
 
 class ExternalMemory:
-    """Внешняя память: документы с эмбеддингами, поиск по содержанию.
-
-    Хранит:
-    - SQLite: метаданные документов (id, source, url, title, timestamp, text)
-    - .pkl: кэш эмбеддингов для быстрого поиска
-    """
+    """External document store with content-addressable retrieval."""
 
     def __init__(self) -> None:
-        self._db_path = DATA_ROOT / "external" / "documents.db"
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._index_path = DATA_ROOT / "external" / "vector_index.pkl"
+        self._db_path = EXTERNAL_DB_PATH
+        self._index_path = EXTERNAL_VECTOR_INDEX_PATH
         self._embedder = _Embedder()
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self._db_path))
         self._init_db()
 
@@ -78,7 +71,8 @@ class ExternalMemory:
     def ingest(self, source: str, content: str, title: str = "",
                url: str | None = None) -> int:
         """Добавляет документ во внешнюю память с инкрементальной индексацией."""
-        content_hash = str(hash(content))
+        import hashlib
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
         now = time.time()
         try:
             cur = self._conn.execute(

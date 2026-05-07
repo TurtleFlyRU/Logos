@@ -9,15 +9,13 @@
 """
 
 import json
+import sqlite3
 import time
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
-from kernel.memory import DATA_ROOT, REPO_ROOT, Memory
-
-
-MISSION_STATE_PATH = DATA_ROOT / "mission" / "state.json"
-EXPERIMENTS_ROOT = REPO_ROOT / "experiments"
+from kernel.config import MISSION_STATE_PATH, EXPERIMENTS_ROOT, MISSION_HYPOTHESES_PATH, MISSION_EXPERIMENTS_PATH, MISSION_PROTOCOL_PATH
+from kernel.memory import Memory
 
 PHASE_ORIENT = "orient"
 PHASE_HYPOTHESIZE = "hypothesize"
@@ -143,7 +141,7 @@ class MissionControl:
     """
 
     def __init__(self, memory: Memory | None = None) -> None:
-        self.memory = memory or Memory()
+        self.memory = memory or Memory.get_instance()
         self.state = self._load_state()
         self.hypotheses: dict[str, Hypothesis] = {}
         self.experiments: dict[str, Experiment] = {}
@@ -164,26 +162,25 @@ class MissionControl:
         )
 
     def _load_data(self) -> None:
-        hyps_path = DATA_ROOT / "mission" / "hypotheses.json"
+        hyps_path = MISSION_HYPOTHESES_PATH
         if hyps_path.exists():
             data = json.loads(hyps_path.read_text())
             self.hypotheses = {k: self._dict_to_hypothesis(v) for k, v in data.items()}
-        exps_path = DATA_ROOT / "mission" / "experiments.json"
+        exps_path = MISSION_EXPERIMENTS_PATH
         if exps_path.exists():
             data = json.loads(exps_path.read_text())
             self.experiments = {k: self._dict_to_experiment(v) for k, v in data.items()}
 
     def _save_data(self) -> None:
-        base = DATA_ROOT / "mission"
-        base.mkdir(parents=True, exist_ok=True)
-        (base / "hypotheses.json").write_text(
+        MISSION_HYPOTHESES_PATH.parent.mkdir(parents=True, exist_ok=True)
+        MISSION_HYPOTHESES_PATH.write_text(
             json.dumps(
                 {k: asdict(v) for k, v in self.hypotheses.items()},
                 indent=2,
                 ensure_ascii=False,
             )
         )
-        (base / "experiments.json").write_text(
+        MISSION_EXPERIMENTS_PATH.write_text(
             json.dumps(
                 {k: asdict(v) for k, v in self.experiments.items()},
                 indent=2,
@@ -370,6 +367,8 @@ class MissionControl:
                     m.before = value
                 if target is not None:
                     m.target = target
+                exp.updated_at = time.time()
+                self._save_data()
                 return
         m = MetricSnapshot(name=name, unit=unit, description=description, target=target)
         if after:
@@ -437,7 +436,7 @@ class MissionControl:
                     source_ids=[],
                     confidence=0.8,
                 )
-            except Exception:
+            except (KeyError, AttributeError, sqlite3.DatabaseError):
                 pass
 
         self._transition(PHASE_ANALYZE, PHASE_INTEGRATE, f"Hypothesis {h.status}")
@@ -560,7 +559,7 @@ class MissionControl:
     def _append_protocol(self, experiment_id: str, entry: str) -> None:
         ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
         if experiment_id == "_mission":
-            log_path = DATA_ROOT / "mission" / "protocol.log"
+            log_path = MISSION_PROTOCOL_PATH
         else:
             exp = self.experiments.get(experiment_id)
             if not exp:

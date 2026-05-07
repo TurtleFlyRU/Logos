@@ -7,10 +7,7 @@ from typing import Any
 
 import numpy as np
 
-from kernel.memory import DATA_ROOT, REPO_ROOT
-
-JOURNAL_DIR = DATA_ROOT / "journal"
-MODEL_PATH = REPO_ROOT / "rubert-tiny2"
+from kernel.config import JOURNAL_DIR, RUBERT_MODEL_PATH as MODEL_PATH
 
 
 class _VectorEngine:
@@ -19,7 +16,7 @@ class _VectorEngine:
     def __init__(self) -> None:
         self._tokenizer = None
         self._model = None
-        self._index_path = DATA_ROOT / "journal_vector_index.pkl"
+        self._index_path = JOURNAL_DIR.parent / "journal_vector_index.pkl"
 
     def _load_model(self) -> None:
         if self._tokenizer is not None:
@@ -110,14 +107,13 @@ class _VectorEngine:
 
 class Journal:
     _vec: _VectorEngine | None = None
-    """Дневник по дням. Каждый день — отдельный .md файл.
-    Индекс ведётся в INDEX.md для быстрого поиска.
-    """
+    """Дневник по дням. Каждый день — отдельный .md файл."""
 
-    def __init__(self) -> None:
+    def __init__(self, memory: "Any | None" = None) -> None:
         JOURNAL_DIR.mkdir(parents=True, exist_ok=True)
         self._journal_dir = JOURNAL_DIR
         self._index_path = JOURNAL_DIR / "INDEX.md"
+        self._memory = memory
 
     def today_path(self) -> Path:
         ts = time.strftime("%Y-%m-%d", time.localtime())
@@ -239,16 +235,16 @@ class Journal:
     def _record_to_memory(self, title: str, content: str, tags: list[str] | None,
                           salience: float) -> None:
         """Записывает сессию в эпизодическую и семантическую память."""
+        m = self._memory
+        if m is None:
+            return
         try:
-            from kernel.memory import Memory
-            m = Memory()
             eid = m.record_episode(
                 raw_text=content,
                 summary=f"{title}: {content[:100]}",
                 tags=tags or [],
                 salience=salience,
             )
-            # Высокозначимые сессии сразу в принципы
             if salience >= 0.8:
                 m.semantic.store_principle(
                     principle=title + " — " + content[:150],
@@ -256,7 +252,7 @@ class Journal:
                     confidence=salience,
                 )
         except Exception:
-            pass  # память не должна ломать запись в журнал
+            pass
 
     def _append_to_vec_index(self, title: str, content: str) -> None:
         """Инкрементально добавляет новую запись в векторный индекс дневника."""

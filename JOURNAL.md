@@ -131,3 +131,17 @@
 ---
 
 *Контрольная точка: 2026-05-07 12:55:00*
+
+## Session 2026-05-07 — Architectural cleanup Phase 5 completion
+
+**Context:** Continuation of kernel refactoring — fixing bugs found by Cursor Agent review.
+
+**Changes:**
+- `kernel/planner.py:get_success_rate()` — fixed bug where `context_sig` parameter was accepted but ignored in filtering. Now filters by action + context_sig BEFORE slicing by window.
+- `kernel/planner.py:decide_with_context()` — narrowed bare `except Exception: pass` to `except AttributeError: pass` for MissionControl guard.
+- `kernel/mission_control.py:conclude_hypothesis()` — narrowed bare `except Exception: pass` to `except (KeyError, AttributeError, sqlite3.DatabaseError): pass` for semantic memory integration guard.
+- `kernel/mission_control.py` — added `import sqlite3`.
+
+**Verification:** All 6 existing tests pass. Manual test confirms `get_success_rate` correctly isolates context signatures. Cursor Agent review: PASS.
+
+**Next:** Phase 6 (tests for memory.py, planner.py, goals.py) or Experiment 009.

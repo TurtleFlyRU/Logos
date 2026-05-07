@@ -27,10 +27,11 @@ def isolated_mission_paths(tmp_path, monkeypatch):
     data_root.mkdir()
     repo_root.mkdir()
 
-    monkeypatch.setattr(mc_mod, "DATA_ROOT", data_root)
-    monkeypatch.setattr(mc_mod, "REPO_ROOT", repo_root)
     monkeypatch.setattr(mc_mod, "MISSION_STATE_PATH", data_root / "mission" / "state.json")
     monkeypatch.setattr(mc_mod, "EXPERIMENTS_ROOT", repo_root / "experiments")
+    monkeypatch.setattr(mc_mod, "MISSION_HYPOTHESES_PATH", data_root / "mission" / "hypotheses.json")
+    monkeypatch.setattr(mc_mod, "MISSION_EXPERIMENTS_PATH", data_root / "mission" / "experiments.json")
+    monkeypatch.setattr(mc_mod, "MISSION_PROTOCOL_PATH", data_root / "mission" / "protocol.log")
 
     return {"data_root": data_root, "repo_root": repo_root}
 

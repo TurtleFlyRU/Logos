@@ -15,10 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from kernel.memory import DATA_ROOT
-
-
-PLANNER_DATA_DIR = DATA_ROOT / "planner"
+from kernel.config import PLANNER_DATA_DIR
 
 
 @dataclass
@@ -59,6 +56,7 @@ class OutcomeMemory:
     def __init__(self, path: str | None = None) -> None:
         self.path = Path(path) if path else (PLANNER_DATA_DIR / "outcomes.json")
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
         self._outcomes: list[dict[str, Any]] = []
         if self.path.exists():
             self._outcomes = json.loads(self.path.read_text())
@@ -79,7 +77,13 @@ class OutcomeMemory:
     def get_success_rate(
         self, action: str, context_sig: str | None = None, window: int = 50
     ) -> float:
-        relevant = [o for o in self._outcomes[-window:] if o["action"] == action]
+        all_matching = [
+            o
+            for o in self._outcomes
+            if o["action"] == action
+            and (context_sig is None or o.get("context_sig") == context_sig)
+        ]
+        relevant = all_matching[-window:]
         if not relevant:
             return 0.5
         successes = sum(1 for o in relevant if o["success"])
@@ -253,7 +257,7 @@ class Planner:
                 context["has_mission"] = True
                 context["mission_phase"] = self._mission_control.state.current_phase
                 context["mission_goal"] = self._mission_control.state.goal[:100]
-        except Exception:
+        except AttributeError:
             pass
 
         if mission_signal > 0:

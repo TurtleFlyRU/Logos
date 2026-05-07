@@ -19,15 +19,13 @@ class AgentPulse:
     """Тихий наблюдатель. Проверяет условия и возвращает suggestion."""
 
     def __init__(self, memory: Memory | None = None) -> None:
-        self.memory = memory or Memory()
+        self.memory = memory
         self._last_sleep_suggestion = 0.0
 
     def check(self, query: str = "", force: bool = False) -> dict[str, Any] | None:
-        """Проверяет условия и возвращает suggestion, если есть.
+        if self.memory is None:
+            return None
 
-        Returns:
-            dict с suggestion или None
-        """
         # Правило 1: научный контекст — MissionControl (самый высокий приоритет)
         mc_suggestion = self._check_mission_control()
         if mc_suggestion:

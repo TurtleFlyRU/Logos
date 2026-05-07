@@ -5,7 +5,7 @@ import sqlite3
 import time
 from typing import Any
 
-from kernel.memory import DATA_ROOT
+from kernel.config import WORKING_MEMORY_PATH, EPISODIC_DB_PATH, SEMANTIC_DB_PATH, JOURNAL_DIR, MORAL_DB_PATH
 
 
 def memory_report() -> dict[str, Any]:
@@ -34,7 +34,7 @@ def memory_report() -> dict[str, Any]:
 
 
 def _working_status() -> dict[str, Any]:
-    path = DATA_ROOT / "working" / "current.json"
+    path = WORKING_MEMORY_PATH
     if not path.exists():
         return {"event_count": 0, "size_bytes": 0, "session_id": None}
     size = path.stat().st_size
@@ -52,7 +52,7 @@ def _working_status() -> dict[str, Any]:
 
 
 def _episodic_status() -> dict[str, Any]:
-    path = DATA_ROOT / "episodic" / "episodes.db"
+    path = EPISODIC_DB_PATH
     if not path.exists():
         return {"total_episodes": 0, "size_bytes": 0}
     size = path.stat().st_size
@@ -71,7 +71,7 @@ def _episodic_status() -> dict[str, Any]:
 
 
 def _semantic_status() -> dict[str, Any]:
-    path = DATA_ROOT / "semantic" / "knowledge.db"
+    path = SEMANTIC_DB_PATH
     if not path.exists():
         return {"principles": 0, "has_principles": False, "size_bytes": 0}
     size = path.stat().st_size
@@ -91,7 +91,7 @@ def _semantic_status() -> dict[str, Any]:
 
 
 def _journal_status() -> dict[str, Any]:
-    path = DATA_ROOT / "journal"
+    path = JOURNAL_DIR
     if not path.exists():
         return {"entries": 0, "files": 0, "size_bytes": 0}
     files = list(path.glob("*.md"))
@@ -108,7 +108,7 @@ def _journal_status() -> dict[str, Any]:
 
 
 def _moral_status() -> dict[str, Any]:
-    path = DATA_ROOT / "episodic" / "moral.db"
+    path = MORAL_DB_PATH
     if not path.exists():
         return {"judgments": 0, "size_bytes": 0}
     size = path.stat().st_size

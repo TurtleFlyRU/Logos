@@ -9,9 +9,15 @@ from typing import Any, TYPE_CHECKING
 if TYPE_CHECKING:
     from kernel.external import ExternalMemory
 
-
-DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
-REPO_ROOT = DATA_ROOT.parent
+from kernel.config import (
+    DATA_ROOT,
+    REPO_ROOT,
+    WORKING_MEMORY_PATH,
+    EPISODIC_DB_PATH,
+    SEMANTIC_DB_PATH,
+    COMPUTE_BUDGET_SRC,
+    VERIFICATION_SRC,
+)
 
 _SESSION_TITLE_CACHE: str | None = None
 _SESSION_TAGS_CACHE: list[str] | None = None
@@ -23,10 +29,11 @@ _SESSION_TAGS_CACHE: list[str] | None = None
 class WorkingMemory:
     """То, что прямо сейчас в фокусе. Неструктурированный JSON."""
 
-    def __init__(self) -> None:
-        self.path = DATA_ROOT / "working" / "current.json"
+    def __init__(self, memory: "Memory | None" = None) -> None:
+        self.path = WORKING_MEMORY_PATH
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._data: dict[str, Any] = self._load()
+        self._memory = memory
 
     CHECKPOINT_INTERVAL = 20  # число событий до автосохранения
 
@@ -58,6 +65,8 @@ class WorkingMemory:
         self._data["event_count"] = self._data.get("event_count", 0) + 1
         self.save()
 
+        mem = self._memory
+
         # Пишем каждое событие в дневник сразу — журналирование на каждый шаг
         content = event.get("content", event.get("message", event.get("text", "")))
         role = event.get("role", "user")
@@ -65,7 +74,7 @@ class WorkingMemory:
             try:
                 from kernel.journal import Journal
 
-                Journal().write_event(
+                Journal(memory=mem).write_event(
                     role=role,
                     content=content[:500],
                     tags=self._data.get("context", {}).get("session_tags"),
@@ -77,31 +86,26 @@ class WorkingMemory:
         try:
             from kernel.agent_pulse import AgentPulse
 
-            pulse = AgentPulse()
+            pulse = AgentPulse(memory=mem)
             suggestion = pulse.check(query=str(content)[:200])
             if suggestion and suggestion["priority"] >= 0.6:
-                # Высокоприоритетные предложения записываем в WM
                 self._data.setdefault("suggestions", []).append(suggestion)
                 self.save()
         except Exception:
             pass
 
         # Автоматический sleep при переполнении рабочей памяти
-        if self._data["event_count"] >= self.AUTO_SLEEP_THRESHOLD:
-            from kernel.memory import Memory
-
+        if mem and self._data["event_count"] >= self.AUTO_SLEEP_THRESHOLD:
             try:
-                Memory().sleep()
+                mem.sleep()
                 self._data["event_count"] = 0
                 self.save()
             except Exception:
                 pass
 
         # Триггер checkpoint по числу событий в сессии
-        if self._data["event_count"] % self.CHECKPOINT_INTERVAL == 0:
-            from kernel.memory import Memory
-
-            Memory()._checkpoint()
+        if mem and self._data["event_count"] % self.CHECKPOINT_INTERVAL == 0:
+            mem._checkpoint()
 
     def clear(self) -> None:
         self._data = {"session_id": None, "context": {}, "events": []}
@@ -119,7 +123,7 @@ class EpisodicMemory:
     """Хронология диалогов с метаданными. SQLite."""
 
     def __init__(self) -> None:
-        self.path = DATA_ROOT / "episodic" / "episodes.db"
+        self.path = EPISODIC_DB_PATH
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.path))
         self._init_db()
@@ -181,7 +185,7 @@ class SemanticMemory:
     """Обобщённые принципы, извлечённые из эпизодов. SQLite + заглушка для векторов."""
 
     def __init__(self) -> None:
-        self.path = DATA_ROOT / "semantic" / "knowledge.db"
+        self.path = SEMANTIC_DB_PATH
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.path))
         self._init_db()
@@ -235,8 +239,10 @@ class SemanticMemory:
 class Memory:
     """Единая точка входа во все уровни памяти."""
 
-    def __init__(self) -> None:
-        self.working = WorkingMemory()
+    _instance: "Memory | None" = None
+
+    def __init__(self, auto_boot: bool = False) -> None:
+        self.working = WorkingMemory(memory=self)
         self.episodic = EpisodicMemory()
         self.semantic = SemanticMemory()
         from kernel.goals import GoalMemory
@@ -245,7 +251,14 @@ class Memory:
         self._external = None
         self._pulse_check_count = 0
         self._pulse_interval = 5  # проверка agent pulse раз в 5 respond()
-        self.boot()
+        if auto_boot:
+            self.boot()
+
+    @classmethod
+    def get_instance(cls) -> "Memory":
+        if cls._instance is None:
+            cls._instance = cls(auto_boot=True)
+        return cls._instance
 
     def boot(self) -> str:
         """Boot-протокол: ритуал пробуждения. Формирует и возвращает контекст."""
@@ -261,8 +274,7 @@ class Memory:
         """Оценивает сложность запроса и возвращает сигнал бюджета."""
         import sys as _sys
 
-        budget_path = REPO_ROOT / "experiments" / "002-compute-budget" / "src"
-        _sys.path.insert(0, str(budget_path))
+        _sys.path.insert(0, str(COMPUTE_BUDGET_SRC))
         from budget import BudgetSignal  # type: ignore[import-untyped]
 
         signaler = BudgetSignal()
@@ -348,8 +360,7 @@ class Memory:
         if needs_verify and draft:
             import sys as _sys
 
-            ver_path = REPO_ROOT / "experiments" / "003-verification" / "src"
-            _sys.path.insert(0, str(ver_path))
+            _sys.path.insert(0, str(VERIFICATION_SRC))
             from verifier import Verifier  # type: ignore[import-untyped]
 
             v = Verifier()
@@ -483,19 +494,14 @@ class Memory:
         return self._external
 
     def _checkpoint(self, force: bool = False) -> None:
-        """Контрольная точка: пишет дневник, коммитит в Git.
-        Позволяет не потерять данные при аварийном отключении.
-        Не пишет пустые checkpoint-ы — только если есть реальные события.
+        """Контрольная точка: пишет дневник.
+        Git commit/push — только при явном вызове снаружи.
         """
         events = self.working.data.get("events", [])
         if not events and not force:
             return
 
         try:
-            import subprocess
-
-            repo_root = Path(__file__).resolve().parent.parent
-
             from kernel.journal import Journal
 
             j = Journal()
@@ -517,25 +523,6 @@ class Memory:
                 content=content,
                 tags=_SESSION_TAGS_CACHE,
                 salience=0.5,
-            )
-
-            subprocess.run(
-                ["git", "add", "-A"],
-                cwd=str(repo_root),
-                capture_output=True,
-                timeout=10,
-            )
-            subprocess.run(
-                ["git", "commit", "-m", f"checkpoint {int(time.time())}"],
-                cwd=str(repo_root),
-                capture_output=True,
-                timeout=10,
-            )
-            subprocess.run(
-                ["git", "push", "origin", "main"],
-                cwd=str(repo_root),
-                capture_output=True,
-                timeout=30,
             )
         except Exception:
             pass
@@ -626,7 +613,7 @@ class Memory:
             from kernel.ethics import get_ethics
 
             ethics = get_ethics()
-            ethics.integrate()
+            ethics.integrate(memory=self)
             report["moral_integration"] = True
         except Exception:
             pass

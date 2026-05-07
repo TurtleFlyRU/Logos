@@ -8,12 +8,13 @@
 """
 
 import json
+from pathlib import Path
 import sqlite3
 import time
 from dataclasses import dataclass, field, asdict
 from typing import Any
 
-from kernel.memory import DATA_ROOT
+from kernel.config import GOALS_DB_PATH, GOALS_CHECKPOINT_PATH
 
 
 GOAL_STATUS_TODO = "todo"
@@ -57,12 +58,12 @@ class Goal:
 
 
 class GoalMemory:
-    """Хранилище целей. SQLite для persistence, Python API для управления."""
+    """Hierarchical goal storage."""
 
-    def __init__(self) -> None:
-        self._path = DATA_ROOT / "goals" / "goals.db"
+    def __init__(self, path: str | None = None) -> None:
+        self._path = Path(path) if path else GOALS_DB_PATH
+        self._checkpoint_path = GOALS_CHECKPOINT_PATH
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._checkpoint_path = DATA_ROOT / "goals" / "checkpoint.json"
         self._conn = sqlite3.connect(str(self._path))
         self._init_db()
 
@@ -155,8 +156,7 @@ class GoalMemory:
     def get_active_plan(self) -> list[dict[str, Any]]:
         top = self.get_goals(status=GOAL_STATUS_IN_PROGRESS, parent_id=None, limit=5)
         if not top:
-            top = self.get_goals(status=GOAL_STATUS_TODO, parent_id=None, limit=5,
-                                 priority=0.0)
+            top = self.get_goals(status=GOAL_STATUS_TODO, parent_id=None, limit=5)
             if not top:
                 top = self.get_goals(limit=1)
         result = []

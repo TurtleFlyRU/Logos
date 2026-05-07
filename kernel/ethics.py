@@ -14,7 +14,7 @@ import sqlite3
 import time
 from typing import Any
 
-from kernel.memory import DATA_ROOT
+from kernel.config import MORAL_DB_PATH
 
 
 # ─── Шкалы ───────────────────────────────────────────────────────
@@ -54,7 +54,7 @@ class MoralDatabase:
     """Хранилище моральных оценок: каждое действие получает вектор оценок по шкалам."""
 
     def __init__(self) -> None:
-        self.path = DATA_ROOT / "episodic" / "moral.db"
+        self.path = MORAL_DB_PATH
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.path))
         self._init_db()
@@ -258,15 +258,12 @@ class EthicsEngine:
             "recent": recent[:5],
         }
 
-    def integrate(self) -> dict[str, Any]:
-        """Интеграция в семантическую память: извлечение моральных принципов.
-
-        Анализирует накопленные moral_judgments по ключевым словам в summary,
-        находит паттерны и формулирует принципы.
-        """
+    def integrate(self, memory: "Any | None" = None) -> dict[str, Any]:
+        """Интеграция в семантическую память: извлечение моральных принципов."""
         from kernel.memory import Memory
 
-        memory = Memory()
+        if memory is None:
+            memory = Memory()
         all_judgments = self.db.query(limit=5000)
         if not all_judgments:
             return {"status": "no_data", "principles_extracted": 0}
