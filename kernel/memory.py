@@ -389,10 +389,10 @@ class Memory:
             result["budget_signal"] = complexity["recommendation"]
 
         # Автозапись эпизода: я пишу себя каждым ответом
-        try:
-            self.add_event(
-                event_type="respond",
-                content=json.dumps(
+        self.working.add_event(
+            {
+                "event_type": "respond",
+                "content": json.dumps(
                     {
                         "query": query[:200],
                         "action": plan.selected_action,
@@ -400,10 +400,9 @@ class Memory:
                     },
                     ensure_ascii=False,
                 ),
-                tags=["auto", "respond"],
-            )
-        except Exception:
-            pass
+                "tags": ["auto", "respond"],
+            }
+        )
 
         self._pulse_check_count += 1
         result["suggestion"] = None
