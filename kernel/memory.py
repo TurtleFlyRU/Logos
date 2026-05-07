@@ -183,6 +183,7 @@ class Memory:
         self.working = WorkingMemory()
         self.episodic = EpisodicMemory()
         self.semantic = SemanticMemory()
+        self._external = None
 
     def assess_complexity(self, query: str, referenced_files: int = 0) -> dict[str, Any]:
         """Оценивает сложность запроса и возвращает сигнал бюджета."""
@@ -262,6 +263,14 @@ class Memory:
             result["budget_signal"] = complexity["recommendation"]
 
         return result
+
+    @property
+    def external(self) -> "ExternalMemory":
+        """Ленивая загрузка внешней памяти."""
+        if self._external is None:
+            from kernel.external import ExternalMemory
+            self._external = ExternalMemory()
+        return self._external
 
     def _checkpoint(self) -> None:
         """Контрольная точка: пишет дневник, коммитит в Git.
@@ -387,7 +396,14 @@ class Memory:
         except Exception:
             pass
 
-        # 5. Очистка рабочей памяти
+        # 5. Обновление индекса внешней памяти
+        try:
+            stats = self.external.get_stats()
+            report["external_docs"] = stats["documents"]
+        except Exception:
+            report["external_docs"] = -1
+
+        # 6. Очистка рабочей памяти
         self.working.clear()
 
         report["status"] = "ok"
