@@ -39,7 +39,12 @@ class WorkingMemory:
 
     def _load(self) -> dict[str, Any]:
         if self.path.exists():
-            return json.loads(self.path.read_text())
+            try:
+                data = self.path.read_text()
+                if data.strip():
+                    return json.loads(data)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                pass
         return {"session_id": None, "context": {}, "events": [], "event_count": 0}
 
     def save(self) -> None:

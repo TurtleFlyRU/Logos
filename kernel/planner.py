@@ -59,7 +59,12 @@ class OutcomeMemory:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._outcomes: list[dict[str, Any]] = []
         if self.path.exists():
-            self._outcomes = json.loads(self.path.read_text())
+            try:
+                data = self.path.read_text()
+                if data.strip():
+                    self._outcomes = json.loads(data)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                pass
 
     def record(self, context_sig: str, action: str, success: bool) -> None:
         self._outcomes.append(
