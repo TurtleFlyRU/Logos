@@ -1,0 +1,14 @@
+# Данные — не коммитим
+data/
+experiments/*/results/
+*.db
+*.pyc
+__pycache__/
+.env
+
+# Вендор — не тащим гигантские .venv и модели
+.venv/
+all-MiniLM-L6-v2/
+rubert-tiny2/
+*.safetensors
+*.bin
