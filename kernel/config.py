@@ -36,6 +36,11 @@ MISSION_STATE_PATH = DATA_ROOT / "mission" / "state.json"
 MISSION_HYPOTHESES_PATH = DATA_ROOT / "mission" / "hypotheses.json"
 MISSION_EXPERIMENTS_PATH = DATA_ROOT / "mission" / "experiments.json"
 MISSION_PROTOCOL_PATH = DATA_ROOT / "mission" / "protocol.log"
+
+# Sleep pipeline
+SLEEP_LOCK_PATH = DATA_ROOT / "sleep" / ".sleep.lock"
+SLEEP_CHECKPOINT_PATH = DATA_ROOT / "sleep" / "checkpoint.json"
+SLEEP_LAST_WORDS_PATH = DATA_ROOT / "sleep" / "last_words.json"
 EXPERIMENTS_ROOT = REPO_ROOT / "experiments"
 
 # Embedding models

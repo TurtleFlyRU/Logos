@@ -1,5 +1,6 @@
 """Оценка значимости эпизода — что важно, что отложить."""
 
+import json
 import time
 from typing import Any
 
@@ -24,14 +25,24 @@ def evaluate_salience(episode: dict[str, Any]) -> float:
     # Фактор 3: теги (наличие ключевых тегов повышает значимость)
     tags = episode.get("tags", "[]")
     if isinstance(tags, str):
-        tags_list = tags.strip("[]").replace('"', "").split(",")
+        try:
+            tags_list = json.loads(tags)
+        except json.JSONDecodeError:
+            tags_list = tags.strip("[]").replace('"', "").split(",")
     else:
         tags_list = tags
     high_importance_tags = {"архитектура", "решение", "эксперимент", "инсайт", "ошибка"}
-    if any(t.strip() in high_importance_tags for t in tags_list):
+    if any(str(t).strip() in high_importance_tags for t in tags_list):
         score += 0.2
 
-    # Фактор 4: ссылки на другие эпизоды
+    # Фактор 4: результат применения. Ошибки и успешные решения стоит удерживать дольше.
+    outcome = str(episode.get("outcome", "")).lower()
+    if outcome in {"success", "ok", "passed", "решено"}:
+        score += 0.1
+    if outcome in {"error", "failed", "ошибка"}:
+        score += 0.2
+
+    # Фактор 5: ссылки на другие эпизоды
     linked = episode.get("linked_episodes", "[]")
     if isinstance(linked, str):
         linked_list = linked.strip("[]").split(",") if linked.strip("[]") else []

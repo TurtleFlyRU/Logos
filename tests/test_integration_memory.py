@@ -39,11 +39,15 @@ def _patch_config(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(cfg, "EXPERIMENTS_ROOT", tmp_path / "experiments")
     monkeypatch.setattr(cfg, "GOALS_DB_PATH", tmp_path / "goals" / "goals.db")
     monkeypatch.setattr(cfg, "GOALS_CHECKPOINT_PATH", tmp_path / "goals" / "checkpoint.json")
+    monkeypatch.setattr(cfg, "SLEEP_LOCK_PATH", tmp_path / "sleep" / ".sleep.lock")
+    monkeypatch.setattr(cfg, "SLEEP_CHECKPOINT_PATH", tmp_path / "sleep" / "checkpoint.json")
 
     # modules with `from kernel.config import X` (локальные копии)
     monkeypatch.setattr(mem, "WORKING_MEMORY_PATH", tmp_path / "wm.json")
     monkeypatch.setattr(mem, "EPISODIC_DB_PATH", tmp_path / "episodic.db")
     monkeypatch.setattr(mem, "SEMANTIC_DB_PATH", tmp_path / "semantic.db")
+    monkeypatch.setattr(mem, "SLEEP_LOCK_PATH", tmp_path / "sleep" / ".sleep.lock")
+    monkeypatch.setattr(mem, "SLEEP_CHECKPOINT_PATH", tmp_path / "sleep" / "checkpoint.json")
 
 
 # ─── respond → эпизод → boot ────────────────────────────────────────────────
