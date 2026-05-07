@@ -232,7 +232,7 @@ class Memory:
 
     def respond(self, draft: str | None, query: str,
                 referenced_files: int = 0) -> dict[str, Any]:
-        """Полный цикл: оценка сложности → черновик → верификация → ответ."""
+        """Полный цикл: оценка сложности → планирование → черновик → верификация → ответ."""
         complexity = self.assess_complexity(query, referenced_files)
         needs_verify = complexity["complexity"]["level"] in ("high", "critical")
 
@@ -241,7 +241,17 @@ class Memory:
             "complexity": complexity["complexity"],
             "needs_expansion": complexity["needs_expansion"],
             "verification": None,
+            "plan": None,
             "final_draft": draft or "",
+        }
+
+        # Планировщик для сложных запросов
+        plan = self._plan(query, complexity["complexity"]["level"])
+        result["plan"] = {
+            "action": plan.selected_action,
+            "expected_utility": plan.expected_utility,
+            "reasoning": plan.reasoning,
+            "decision_time_ms": plan.decision_time_ms,
         }
 
         if needs_verify and draft:
@@ -263,6 +273,46 @@ class Memory:
             result["budget_signal"] = complexity["recommendation"]
 
         return result
+
+    def _plan(self, query: str, complexity_level: str = "medium") -> Any:
+        """Запускает дискретный планировщик для выбора действия."""
+        import sys as _sys
+        planner_path = REPO_ROOT / "experiments" / "004-planner" / "src"
+        _sys.path.insert(0, str(planner_path))
+        from planner import ActionSpace, Planner  # type: ignore[import-untyped]
+
+        space = ActionSpace()
+        space.register(
+            "respond", "Ответить напрямую",
+            utility_fn=lambda ctx: 0.8 if ctx.get("complexity") == "low" else 0.2,
+            probability_fn=lambda ctx: 0.95 if ctx.get("complexity") == "low" else 0.4,
+        )
+        space.register(
+            "verify", "Проверить черновик по памяти",
+            utility_fn=lambda ctx: 0.8 if ctx.get("needs_verification") else 0.2,
+            probability_fn=lambda ctx: 0.7,
+        )
+        space.register(
+            "search_external", "Поискать во внешней памяти",
+            utility_fn=lambda ctx: 0.7 if ctx.get("has_external_data") else 0.1,
+            probability_fn=lambda ctx: 0.6,
+        )
+        space.register(
+            "request_expansion", "Запросить больший бюджет",
+            utility_fn=lambda ctx: 0.95 if ctx.get("complexity") == "critical" else 0.0,
+            probability_fn=lambda ctx: 0.6,
+        )
+        space.register(
+            "sleep", "Запустить sleep-пайплайн",
+            utility_fn=lambda ctx: 0.8 if str(ctx.get("query", "")).startswith("sleep") else 0.1,
+            probability_fn=lambda ctx: 0.8,
+        )
+
+        planner = Planner(space)
+        return planner.decide_with_context(
+            query=query,
+            complexity_level=complexity_level,
+        )
 
     @property
     def external(self) -> "ExternalMemory":
