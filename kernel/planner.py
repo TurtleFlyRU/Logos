@@ -70,9 +70,9 @@ class OutcomeMemory:
                 "timestamp": time.time(),
             }
         )
-        self.path.write_text(
-            json.dumps(self._outcomes[-500:], indent=2, ensure_ascii=False)
-        )
+        from kernel.utils import atomic_write
+
+        atomic_write(self.path, self._outcomes[-500:])
 
     def get_success_rate(
         self, action: str, context_sig: str | None = None, window: int = 50

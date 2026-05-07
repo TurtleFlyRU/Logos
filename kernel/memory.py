@@ -43,7 +43,9 @@ class WorkingMemory:
         return {"session_id": None, "context": {}, "events": [], "event_count": 0}
 
     def save(self) -> None:
-        self.path.write_text(json.dumps(self._data, indent=2, ensure_ascii=False))
+        from kernel.utils import atomic_write
+
+        atomic_write(self.path, self._data)
 
     def set_context(self, key: str, value: Any) -> None:
         self._data["context"][key] = value
