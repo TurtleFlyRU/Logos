@@ -3,15 +3,11 @@
 Гипотеза → план → эксперимент → протокол → вывод → интеграция.
 """
 
-import json
-import os
 import subprocess
-import sys
 import time
 from pathlib import Path
 from typing import Any
 
-from kernel.memory import DATA_ROOT
 
 EXPERIMENTS_ROOT = Path(__file__).resolve().parent.parent / "experiments"
 
@@ -48,9 +44,9 @@ class HypothesisBank:
             f"## Обоснование\n\n{rationale}\n\n"
             f"## Ожидаемый результат\n\n{expected_outcome}\n\n"
             f"## Метрики успеха\n\n" + "\n".join(f"- {m}" for m in metrics) + "\n\n"
-            f"## План\n\n(будет заполнен)\n\n"
-            f"## Протокол\n\n(будет заполнен)\n\n"
-            f"## Вывод\n\n(будет заполнен)\n"
+            "## План\n\n(будет заполнен)\n\n"
+            "## Протокол\n\n(будет заполнен)\n\n"
+            "## Вывод\n\n(будет заполнен)\n"
         )
         (exp_dir / "HYPOTHESIS.md").write_text(hypothesis_content)
 

@@ -1,6 +1,5 @@
 """Verifier — проверяет черновик ответа по памяти Эйдоса."""
 
-import json
 import re
 import sys
 from pathlib import Path
@@ -40,7 +39,6 @@ class Verifier:
         for claim in claims:
             claim_lower = claim.lower()
             supported = False
-            contradicted = False
 
             for pt in principle_texts:
                 # Ищем пересечение значимых слов

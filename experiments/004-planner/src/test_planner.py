@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from planner import ActionSpace, Planner, Plan
+from planner import ActionSpace, Planner
 
 
 def make_test_space() -> ActionSpace:

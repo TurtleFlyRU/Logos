@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Индексация записей дневника в эмбеддинги через sentence-transformers."""
 
-import json
 import os
 import pickle
 import sys
@@ -11,12 +10,12 @@ EXPERIMENTS_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = EXPERIMENTS_ROOT.parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-import numpy as np
-from huggingface_hub import login
-from transformers import AutoTokenizer, AutoModel
-import torch
+import numpy as np  # noqa: E402
+from huggingface_hub import login  # noqa: E402
+from transformers import AutoTokenizer, AutoModel  # noqa: E402
+import torch  # noqa: E402
 
-from kernel.journal import Journal
+from kernel.journal import Journal  # noqa: E402
 
 if os.environ.get("HF_TOKEN"):
     login(token=os.environ["HF_TOKEN"])

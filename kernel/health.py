@@ -3,7 +3,6 @@
 import json
 import sqlite3
 import time
-from pathlib import Path
 from typing import Any
 
 from kernel.memory import DATA_ROOT
@@ -99,7 +98,7 @@ def _journal_status() -> dict[str, Any]:
     index_path = path / "INDEX.md"
     entry_count = 0
     if index_path.exists():
-        entry_count = len([l for l in index_path.read_text().split("\n") if l.startswith("| ")])
+        entry_count = len([line for line in index_path.read_text().split("\n") if line.startswith("| ")])
     total_size = sum(f.stat().st_size for f in files)
     return {
         "entries": entry_count,

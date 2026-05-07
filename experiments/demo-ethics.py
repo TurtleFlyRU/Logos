@@ -3,7 +3,6 @@
 
 import sys
 import os
-import json
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from kernel.ethics import EthicsEngine, FRAMES
@@ -50,7 +49,7 @@ def demo() -> None:
     report = ethics.report()
     if report["status"] == "ok":
         print(f"  Оценок в базе: {report['judgments_count']}")
-        print(f"  Средние:")
+        print("  Средние:")
         for k, v in report["average_scores"].items():
             arrow = "🟢" if v > 0.15 else ("🔴" if v < -0.15 else "⚪")
             print(f"    {arrow} {k}: {v:+.2f}")
