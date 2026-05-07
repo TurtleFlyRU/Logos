@@ -90,10 +90,12 @@
    - Интегрирована в Memory.external() и sleep-пайплайн
 
 10. **Дискретный планировщик поверх вероятностной генерации** ✅
-     - ActionSpace + Planner: expected utility = utility × probability
-     - Выбор действия: respond/verify/search_external/request_expansion/sleep
-     - Интеграция в Memory.respond() как слой мета-рассуждения
-     - Эксперимент 004: все тесты пройдены
+      - ActionSpace + Planner: expected utility = utility × probability
+      - Выбор действия: respond/verify/search_external/request_expansion/sleep
+      - **OutcomeMemory**: планировщик учится на опыте (probability не хардкод, а 30% hardcoded + 70% empirical)
+      - **Feedback loop**: Memory.respond() передаёт результат действия обратно в Planner
+      - Интеграция в Memory.respond() как слой мета-рассуждения
+      - Эксперимент 004: все тесты пройдены, гипотеза подтверждена
 
 11. **Минимальная агентность** ✅
      - AgentPulse: проверяет 3 правила (новая информация, частый тег, переполненная WM)

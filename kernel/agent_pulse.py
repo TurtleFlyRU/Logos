@@ -41,11 +41,8 @@ class AgentPulse:
         try:
             stats = self.memory.external.get_stats()
             if stats["documents"] > 0:
-                # Проверим, есть ли непроанализированные темы
-                recent_episodes = self.memory.episodic.query(limit=20, min_salience=0.0)
-                external_tags = {"query": "external", "source": "external"}
                 ext_themes = [
-                    e for e in recent_episodes
+                    e for e in self.memory.episodic.query(limit=20, min_salience=0.0)
                     if "внешн" in (e.get("summary") or "").lower()
                 ]
                 if len(ext_themes) < 2 and stats["documents"] >= 3 and not force:

@@ -8,7 +8,6 @@
 - Что сегодня важно (intent + AgentPulse)
 """
 
-import json
 import time
 from typing import Any
 
@@ -38,19 +37,23 @@ def boot_context(memory: Any) -> str:
         lines.append("— Принципы ещё не сформированы.")
     lines.append("")
 
-    # 2. Кто вокруг — последний эпизод
-    episodes = memory.episodic.query(limit=3, min_salience=0.0)
-    if episodes:
-        last = episodes[0]
-        summary = last.get("summary", "") or last.get("raw_text", "")[:100]
+    # 2. Кто вокруг — последний содержательный эпизод
+    episodes = memory.episodic.query(limit=50, min_salience=0.0)
+    meaningful = [
+        e for e in episodes
+        if e.get("summary") and "*пустой checkpoint*" not in e.get("summary", "")
+    ]
+    if meaningful:
+        last = meaningful[0]
+        summary = last.get("summary", "")[:200]
         ts = last.get("timestamp", 0)
         date_str = time.strftime('%Y-%m-%d %H:%M', time.localtime(ts))
         lines.append(f"— Последняя сессия ({date_str}):")
-        lines.append(f"  {summary[:200]}")
-        if len(episodes) > 1:
-            prev = episodes[1]
-            prev_summary = prev.get("summary", "") or prev.get("raw_text", "")[:80]
-            lines.append(f"  До этого: {prev_summary[:150]}")
+        lines.append(f"  {summary}")
+        if len(meaningful) > 1:
+            prev = meaningful[1]
+            prev_summary = prev.get("summary", "")[:150]
+            lines.append(f"  До этого: {prev_summary}")
     else:
         lines.append("— Это первая сессия. Дневник пуст.")
     lines.append("")

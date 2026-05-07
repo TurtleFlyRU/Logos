@@ -1,16 +1,21 @@
-"""Дискретный планировщик поверх вероятностной генерации.
+"""Дискретный планировщик с обучением на опыте.
 
 Выбирает следующее действие на основе expected utility:
 - Candidates: набор возможных действий
-- Scorer: оценивает utility и вероятность успеха для каждого
+- Outcomememory: статистика успехов/неудач для адаптации probability
 - Selector: выбирает argmax(expected_utility)
+
+Планировщик учится: после каждого действия вызывается record_outcome(),
+и probability_fn для действий корректируется на основе реального опыта.
 """
 
+import json
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable
 
-import numpy as np
+
 
 
 @dataclass
@@ -33,16 +38,64 @@ class Plan:
     decision_time_ms: float = 0.0
 
 
+class OutcomeMemory:
+    """Хранит истории контекст → действие → успех/неудача.
+
+    Позволяет Planner'у адаптировать probability на основе реального опыта,
+    а не только хардкодных функций.
+    """
+
+    def __init__(self, path: str | None = None) -> None:
+        self.path = Path(path) if path else None
+        self._outcomes: list[dict[str, Any]] = []
+        if self.path and self.path.exists():
+            self._outcomes = json.loads(self.path.read_text())
+
+    def record(self, context_sig: str, action: str, success: bool) -> None:
+        self._outcomes.append({
+            "context_sig": context_sig,
+            "action": action,
+            "success": success,
+            "timestamp": time.time(),
+        })
+        if self.path:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            self.path.write_text(json.dumps(self._outcomes[-500:], indent=2, ensure_ascii=False))
+
+    def get_success_rate(self, action: str, context_sig: str | None = None,
+                         window: int = 50) -> float:
+        relevant = [o for o in self._outcomes[-window:] if o["action"] == action]
+        if not relevant:
+            return 0.5
+        successes = sum(1 for o in relevant if o["success"])
+        return successes / len(relevant)
+
+    def total_outcomes(self, action: str) -> int:
+        return sum(1 for o in self._outcomes if o["action"] == action)
+
+    @property
+    def size(self) -> int:
+        return len(self._outcomes)
+
+    @staticmethod
+    def make_context_sig(context: dict[str, Any]) -> str:
+        complexity = context.get("complexity", "unknown")
+        needs_ver = context.get("needs_verification", False)
+        has_ext = context.get("has_external_data", False)
+        return f"cplx={complexity}|verify={needs_ver}|ext={has_ext}"
+
+
 class ActionSpace:
     """Пространство возможных действий.
 
     Каждое действие — именованная функция с двумя оценками:
     - utility: насколько полезно выполнить это действие в данном контексте
-    - probability: насколько вероятен успех
+    - probability: насколько вероятен успех (может адаптироваться через OutcomeMemory)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, outcome_memory: OutcomeMemory | None = None) -> None:
         self._actions: dict[str, Action] = {}
+        self._outcome_memory = outcome_memory
 
     def register(self, name: str, description: str,
                  utility_fn: Callable[[dict[str, Any]], float] | None = None,
@@ -66,32 +119,37 @@ class ActionSpace:
     def names(self) -> list[str]:
         return list(self._actions.keys())
 
+    def compute_probability(self, action: Action, context: dict[str, Any]) -> float:
+        prob = action.probability
+        if action.probability_fn:
+            prob = action.probability_fn(context)
+        if self._outcome_memory:
+            sig = OutcomeMemory.make_context_sig(context)
+            empirical = self._outcome_memory.get_success_rate(action.name, sig)
+            sig_total = sum(
+                1 for o in self._outcome_memory._outcomes[-200:]
+                if o["action"] == action.name and o["context_sig"] == sig
+            )
+            if sig_total >= 3:
+                prob = 0.3 * prob + 0.7 * empirical
+        return prob
+
 
 class Planner:
-    """Принимает контекст, оценивает действия, выбирает лучшее."""
+    """Принимает контекст, оценивает действия (с учётом опыта), выбирает лучшее."""
 
     def __init__(self, action_space: ActionSpace | None = None) -> None:
         self.space = action_space or ActionSpace()
 
     def decide(self, context: dict[str, Any]) -> Plan:
-        """Оценивает все действия в контексте и возвращает план.
-
-        Args:
-            context: текущее состояние (запрос, память, сложность, ...)
-
-        Returns:
-            Plan с выбранным действием
-        """
         start = time.perf_counter()
         candidates: list[dict[str, Any]] = []
 
         for name, action in self.space.all.items():
             utility = action.utility
-            probability = action.probability
             if action.utility_fn:
                 utility = action.utility_fn(context)
-            if action.probability_fn:
-                probability = action.probability_fn(context)
+            probability = self.space.compute_probability(action, context)
             expected = utility * probability
 
             candidates.append({
@@ -130,10 +188,14 @@ class Planner:
             f"margin={margin:.3f})"
         )
 
+    def record_outcome(self, action: str, context: dict[str, Any], success: bool) -> None:
+        if self.space._outcome_memory:
+            sig = OutcomeMemory.make_context_sig(context)
+            self.space._outcome_memory.record(sig, action, success)
+
     def decide_with_context(self, query: str, complexity_level: str = "medium",
                             memory_summary: str | None = None,
                             recent_topics: list[str] | None = None) -> Plan:
-        """Удобная обёртка: формирует контекст и вызывает decide()."""
         context = {
             "query": query,
             "complexity": complexity_level,

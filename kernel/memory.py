@@ -4,7 +4,10 @@ import json
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from kernel.external import ExternalMemory
 
 
 DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
@@ -46,14 +49,49 @@ class WorkingMemory:
         self._data["context"]["session_tags"] = tags
         self.save()
 
+    AUTO_SLEEP_THRESHOLD = 50
+
     def add_event(self, event: dict[str, Any]) -> None:
         event["timestamp"] = time.time()
         self._data["events"].append(event)
         self._data["event_count"] = self._data.get("event_count", 0) + 1
         self.save()
+
+        # Пишем каждое событие в дневник сразу — журналирование на каждый шаг
+        content = event.get("content", event.get("message", event.get("text", "")))
+        role = event.get("role", "user")
+        if content and isinstance(content, str) and len(content) > 5:
+            try:
+                from kernel.journal import Journal
+                Journal().write_event(role=role, content=content[:500], tags=self._data.get("context", {}).get("session_tags"))
+            except Exception:
+                pass
+
+        # Heartbeat: AgentPulse на каждое событие
+        try:
+            from kernel.agent_pulse import AgentPulse
+            pulse = AgentPulse()
+            suggestion = pulse.check(query=str(content)[:200])
+            if suggestion and suggestion["priority"] >= 0.6:
+                # Высокоприоритетные предложения записываем в WM
+                self._data.setdefault("suggestions", []).append(suggestion)
+                self.save()
+        except Exception:
+            pass
+
+        # Автоматический sleep при переполнении рабочей памяти
+        if self._data["event_count"] >= self.AUTO_SLEEP_THRESHOLD:
+            from kernel.memory import Memory
+            try:
+                Memory().sleep()
+                self._data["event_count"] = 0
+                self.save()
+            except Exception:
+                pass
+
         # Триггер checkpoint по числу событий в сессии
         if self._data["event_count"] % self.CHECKPOINT_INTERVAL == 0:
-            from kernel.memory import Memory  # избегаем циклического импорта
+            from kernel.memory import Memory
             Memory()._checkpoint()
 
     def clear(self) -> None:
@@ -264,6 +302,15 @@ class Memory:
             "decision_time_ms": plan.decision_time_ms,
         }
 
+        # Feedback loop: обучаем планировщик на результате действия
+        ctx_for_feedback = {
+            "query": query,
+            "complexity": complexity["complexity"]["level"],
+            "needs_verification": needs_verify,
+            "has_external_data": False,
+        }
+        verification_success = True
+
         if needs_verify and draft:
             import sys as _sys
             ver_path = REPO_ROOT / "experiments" / "003-verification" / "src"
@@ -271,18 +318,29 @@ class Memory:
             from verifier import Verifier  # type: ignore[import-untyped]
             v = Verifier()
             verification = v.verify_and_format(draft, query)
+            issues_found = len(verification["issues"])
+            verification_success = issues_found == 0
             result["verification"] = {
-                "issues_found": len(verification["issues"]),
+                "issues_found": issues_found,
                 "needs_correction": verification["needs_correction"],
                 "supporting_principles": len(verification["supporting"]),
                 "corrections": verification["corrections"][:3],
             }
             result["final_draft"] = verification["corrected_draft"]
 
+        # Feedback для планировщика
+        try:
+            self._planner.record_outcome(
+                action=plan.selected_action,
+                context=ctx_for_feedback,
+                success=verification_success,
+            )
+        except Exception:
+            pass
+
         if complexity["needs_expansion"]:
             result["budget_signal"] = complexity["recommendation"]
 
-        # Agent pulse — самоинициация (раз в _pulse_interval вызовов)
         self._pulse_check_count += 1
         result["suggestion"] = None
         if self._pulse_check_count >= self._pulse_interval:
@@ -303,9 +361,13 @@ class Memory:
         import sys as _sys
         planner_path = REPO_ROOT / "experiments" / "004-planner" / "src"
         _sys.path.insert(0, str(planner_path))
-        from planner import ActionSpace, Planner  # type: ignore[import-untyped]
+        from planner import ActionSpace, Planner, OutcomeMemory  # type: ignore[import-untyped]
 
-        space = ActionSpace()
+        data_dir = DATA_ROOT / "planner"
+        data_dir.mkdir(parents=True, exist_ok=True)
+        om = OutcomeMemory(str(data_dir / "outcomes.json"))
+
+        space = ActionSpace(outcome_memory=om)
         space.register(
             "respond", "Ответить напрямую",
             utility_fn=lambda ctx: 0.8 if ctx.get("complexity") == "low" else 0.2,
@@ -332,8 +394,8 @@ class Memory:
             probability_fn=lambda ctx: 0.8,
         )
 
-        planner = Planner(space)
-        return planner.decide_with_context(
+        self._planner = Planner(space)
+        return self._planner.decide_with_context(
             query=query,
             complexity_level=complexity_level,
         )
@@ -346,19 +408,22 @@ class Memory:
             self._external = ExternalMemory()
         return self._external
 
-    def _checkpoint(self) -> None:
+    def _checkpoint(self, force: bool = False) -> None:
         """Контрольная точка: пишет дневник, коммитит в Git.
         Позволяет не потерять данные при аварийном отключении.
+        Не пишет пустые checkpoint-ы — только если есть реальные события.
         """
+        events = self.working.data.get("events", [])
+        if not events and not force:
+            return
+
         try:
             import subprocess
 
             repo_root = Path(__file__).resolve().parent.parent
 
-            # Пишем в журнал
             from kernel.journal import Journal
             j = Journal()
-            events = self.working.data.get("events", [])
             content_parts = []
             for e in events[-5:]:
                 c = e.get("content", e.get("message", e.get("text", "")))
@@ -367,16 +432,18 @@ class Memory:
                     content_parts.append(f"**{role}:** {c[:200]}")
             content = "\n\n".join(content_parts)
 
+            if not content:
+                return
+
             global _SESSION_TITLE_CACHE, _SESSION_TAGS_CACHE
             title = f"Checkpoint — {_SESSION_TITLE_CACHE or 'без названия'}"
             j.write_session(
                 title=title,
-                content=content or "*пустой checkpoint*",
+                content=content,
                 tags=_SESSION_TAGS_CACHE,
                 salience=0.5,
             )
 
-            # Commit и push
             subprocess.run(
                 ["git", "add", "-A"],
                 cwd=str(repo_root), capture_output=True, timeout=10,
@@ -390,7 +457,7 @@ class Memory:
                 cwd=str(repo_root), capture_output=True, timeout=30,
             )
         except Exception:
-            pass  # checkpoint не должен ломать основную работу
+            pass
 
     def sleep(self) -> dict[str, Any]:
         """Пайплайн сна: архив, индексация, извлечение принципов."""
@@ -492,3 +559,16 @@ class Memory:
 
         report["status"] = "ok"
         return report
+
+
+if __name__ == "__main__":
+    import sys
+    m = Memory()
+    if len(sys.argv) > 1 and sys.argv[1] == "check":
+        ctx = m.boot()
+        print(ctx)
+    else:
+        report = m.sleep()
+        print(f"[sleep] Эпизодов: {report.get('episodes_processed', 0)}")
+        print(f"[sleep] Принципов извлечено: {report.get('promoted_to_semantic', 0)}")
+        print(f"[sleep] Статус: {report.get('status', 'unknown')}")

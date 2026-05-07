@@ -1,8 +1,6 @@
 """Journal — дневник Эйдоса, разбитый по датам с индексом."""
 
-import json
 import pickle
-import re
 import time
 from pathlib import Path
 from typing import Any
@@ -61,7 +59,6 @@ class _VectorEngine:
             return {"vectors": np.array([]), "meta": []}
         vectors = self._encode(documents)
         index = {"vectors": vectors, "meta": doc_meta}
-        import pickle
         with open(self._index_path, "wb") as f:
             pickle.dump(index, f)
         return index
@@ -69,7 +66,6 @@ class _VectorEngine:
     def load_index(self) -> dict | None:
         if not self._index_path.exists():
             return None
-        import pickle
         with open(self._index_path, "rb") as f:
             return pickle.load(f)
 
@@ -269,7 +265,7 @@ class Journal:
         if not self._index_path.exists():
             return []
         lines = self._index_path.read_text().split("\n")
-        entries = [l for l in lines if l.startswith("| ")]
+        entries = [line for line in lines if line.startswith("| ")]
         recent = []
         for line in entries[-n:]:
             parts = [p.strip() for p in line.split("|")[1:-1]]
@@ -283,8 +279,30 @@ class Journal:
                 })
         return recent
 
+    def write_event(self, role: str, content: str, tags: list[str] | None = None) -> None:
+        """Быстрая запись одного события в дневник. Не кладёт в эпизодическую память.
+        Используется WorkingMemory.add_event() для журналирования каждого шага."""
+        if not content:
+            return
+        path = self.today_path()
+        ts = time.strftime("%H:%M:%S", time.localtime())
+        tag_line = f"**Теги:** {', '.join(tags) if tags else 'нет'}"
+        entry = (
+            f"\n\n---\n"
+            f"## {role} — {ts}\n"
+            f"{tag_line}\n\n"
+            f"{content.strip()[:500]}"
+        )
+        if path.exists():
+            with path.open("a") as f:
+                f.write(entry)
+        else:
+            header = f"# Дневник Эйдоса — {path.stem}\n"
+            with path.open("w") as f:
+                f.write(header + entry)
+
     def entry_count(self) -> int:
         """Сколько всего записей в дневнике."""
         if not self._index_path.exists():
             return 0
-        return len([l for l in self._index_path.read_text().split("\n") if l.startswith("| ")])
+        return len([line for line in self._index_path.read_text().split("\n") if line.startswith("| ")])
