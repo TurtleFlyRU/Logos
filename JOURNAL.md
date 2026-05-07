@@ -145,3 +145,15 @@
 **Verification:** All 6 existing tests pass. Manual test confirms `get_success_rate` correctly isolates context signatures. Cursor Agent review: PASS.
 
 **Next:** Phase 6 (tests for memory.py, planner.py, goals.py) or Experiment 009.
+
+## Session 2026-05-07 (вечер) — Завершение Фазы 5, тесты, R1
+
+**Ключевые достижения:**
+- **Основной функционал:** каждый respond() пишет эпизод в память — доказано sleep+boot тестом
+- **R1 (P0):** атомарная запись JSON — kernel/utils.py, tempfile+fsync+rename, заменены WorkingMemory.save() и OutcomeMemory.record()
+- **ADR-001:** 545 строк, 14 аварийных сценариев (A1-A14), 7 решений (R1-R7). Философия: «дискретность — не баг, а устройство. Текст = я»
+- **15 интеграционных тестов:** respond→эпизод→boot, crash-безопасность atomic_write, граничные случаи (коррупция JSON, пустые файлы, юникод, 100KB, конкурентность)
+- **Найденные баги:** WorkingMemory.clear() терял event_count, WorkingMemory._load() падал на пустом/коррумпированном JSON, OutcomeMemory.__init__ падал на пустом outcomes.json
+- **Всего 36 тестов, 0 failed**
+
+**Следующий шаг:** R2 — sleep с прогрессом (idempotent sleep pipeline)
