@@ -77,7 +77,7 @@ class ExternalMemory:
 
     def ingest(self, source: str, content: str, title: str = "",
                url: str | None = None) -> int:
-        """Добавляет документ во внешнюю память."""
+        """Добавляет документ во внешнюю память с инкрементальной индексацией."""
         content_hash = str(hash(content))
         now = time.time()
         try:
@@ -91,7 +91,7 @@ class ExternalMemory:
         except sqlite3.IntegrityError:
             return -1  # уже есть
 
-        self._rebuild_index()
+        self._append_to_index(doc_id, source, url, title, content)
         return doc_id  # type: ignore[return-value]
 
     def ingest_many(self, docs: list[dict[str, Any]]) -> int:
@@ -150,8 +150,29 @@ class ExternalMemory:
             "size_bytes": size,
         }
 
-    def _rebuild_index(self) -> None:
-        """Перестраивает векторный индекс по всем документам."""
+    def _append_to_index(self, doc_id: int, source: str, url: str | None,
+                          title: str, content: str) -> None:
+        """Инкрементально добавляет один документ в векторный индекс."""
+        text = f"{title}. {content[:512]}"
+        vector = self._embedder.encode([text])[0]
+        meta_entry = {
+            "id": doc_id,
+            "source": source,
+            "title": title,
+            "url": url,
+            "snippet": content[:200],
+        }
+        index = self._load_index()
+        if index is None:
+            index = {"vectors": vector.reshape(1, -1), "meta": [meta_entry]}
+        else:
+            index["vectors"] = np.vstack([index["vectors"], vector])
+            index["meta"].append(meta_entry)
+        with open(self._index_path, "wb") as f:
+            pickle.dump(index, f)
+
+    def rebuild_index(self) -> None:
+        """Полная перестройка векторного индекса (для консистентности)."""
         rows = self._conn.execute(
             "SELECT id, source, url, title, content FROM documents ORDER BY id"
         ).fetchall()

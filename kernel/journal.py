@@ -39,6 +39,22 @@ class _VectorEngine:
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
         return embeddings / np.where(norms == 0, 1, norms)
 
+    def append_to_index(self, section_title: str, body: str, file_name: str) -> None:
+        """Инкрементально добавляет одну секцию в векторный индекс."""
+        doc_text = f"{section_title}. {body}"
+        if len(doc_text) <= 20:
+            return
+        vector = self._encode([doc_text])[0]
+        meta_entry = {"file": file_name, "section": section_title}
+        index = self.load_index()
+        if index is None:
+            index = {"vectors": vector.reshape(1, -1), "meta": [meta_entry]}
+        else:
+            index["vectors"] = np.vstack([index["vectors"], vector])
+            index["meta"].append(meta_entry)
+        with open(self._index_path, "wb") as f:
+            pickle.dump(index, f)
+
     def build_index(self, journal: "Journal") -> dict:
         documents: list[str] = []
         doc_meta: list[dict] = []
@@ -133,7 +149,7 @@ class Journal:
                 f.write(header + entry)
 
         self._update_index(title, tags, salience)
-        self._maybe_rebuild()
+        self._append_to_vec_index(title, content)
         self._record_to_memory(title, content, tags, salience)
 
     def _update_index(self, title: str, tags: list[str] | None, salience: float) -> None:
@@ -242,17 +258,12 @@ class Journal:
         except Exception:
             pass  # память не должна ломать запись в журнал
 
-    def _maybe_rebuild(self) -> None:
-        index_path = DATA_ROOT / "journal_vector_index.pkl"
-        if not index_path.exists():
-            return
-        import pickle as _p
-        with open(index_path, "rb") as f:
-            index = _p.load(f)
-        indexed_count = len(index.get("meta", []))
-        current_count = self.entry_count()
-        if current_count - indexed_count >= self.REINDEX_THRESHOLD:
-            self.rebuild_index()
+    def _append_to_vec_index(self, title: str, content: str) -> None:
+        """Инкрементально добавляет новую запись в векторный индекс дневника."""
+        if self._vec is None:
+            self._vec = _VectorEngine()
+        fname = self.today_path().name
+        self._vec.append_to_index(section_title=title, body=content[:500], file_name=fname)
 
     def rebuild_index(self) -> None:
         """Перестраивает векторный индекс дневника."""

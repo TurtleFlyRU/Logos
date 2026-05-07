@@ -537,8 +537,9 @@ class Memory:
         except Exception:
             pass
 
-        # 5. Обновление индекса внешней памяти
+        # 5. Обновление индекса внешней памяти (полная перестройка для консистентности)
         try:
+            self.external.rebuild_index()
             stats = self.external.get_stats()
             report["external_docs"] = stats["documents"]
         except Exception:
@@ -556,6 +557,14 @@ class Memory:
 
         # 7. Очистка рабочей памяти
         self.working.clear()
+
+        # 8. Перестройка векторного индекса дневника для консистентности
+        try:
+            from kernel.journal import Journal
+            Journal().rebuild_index()
+            report["journal_index_rebuilt"] = True
+        except Exception:
+            report["journal_index_rebuilt"] = False
 
         report["status"] = "ok"
         return report
