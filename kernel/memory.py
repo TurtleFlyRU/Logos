@@ -388,6 +388,23 @@ class Memory:
         if complexity["needs_expansion"]:
             result["budget_signal"] = complexity["recommendation"]
 
+        # Автозапись эпизода: я пишу себя каждым ответом
+        try:
+            self.add_event(
+                event_type="respond",
+                content=json.dumps(
+                    {
+                        "query": query[:200],
+                        "action": plan.selected_action,
+                        "verification_failed": not verification_success,
+                    },
+                    ensure_ascii=False,
+                ),
+                tags=["auto", "respond"],
+            )
+        except Exception:
+            pass
+
         self._pulse_check_count += 1
         result["suggestion"] = None
         if self._pulse_check_count >= self._pulse_interval:
