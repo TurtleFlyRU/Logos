@@ -115,7 +115,7 @@ class WorkingMemory:
             mem._checkpoint()
 
     def clear(self) -> None:
-        self._data = {"session_id": None, "context": {}, "events": []}
+        self._data = {"session_id": None, "context": {}, "events": [], "event_count": 0}
         self.save()
 
     @property
