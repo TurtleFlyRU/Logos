@@ -184,6 +184,8 @@ class Memory:
         self.episodic = EpisodicMemory()
         self.semantic = SemanticMemory()
         self._external = None
+        self._pulse_check_count = 0
+        self._pulse_interval = 5  # проверка agent pulse раз в 5 respond()
 
     def assess_complexity(self, query: str, referenced_files: int = 0) -> dict[str, Any]:
         """Оценивает сложность запроса и возвращает сигнал бюджета."""
@@ -271,6 +273,20 @@ class Memory:
 
         if complexity["needs_expansion"]:
             result["budget_signal"] = complexity["recommendation"]
+
+        # Agent pulse — самоинициация (раз в _pulse_interval вызовов)
+        self._pulse_check_count += 1
+        result["suggestion"] = None
+        if self._pulse_check_count >= self._pulse_interval:
+            self._pulse_check_count = 0
+            try:
+                from kernel.agent_pulse import AgentPulse
+                pulse = AgentPulse(self)
+                suggestion = pulse.check(query=query)
+                if suggestion:
+                    result["suggestion"] = suggestion
+            except Exception:
+                pass
 
         return result
 
@@ -453,7 +469,17 @@ class Memory:
         except Exception:
             report["external_docs"] = -1
 
-        # 6. Очистка рабочей памяти
+        # 6. AgentPulse — предложить следующий эксперимент
+        try:
+            from kernel.agent_pulse import AgentPulse
+            pulse = AgentPulse(self)
+            suggestion = pulse.check(force=True)
+            if suggestion:
+                report["suggestion"] = suggestion
+        except Exception:
+            pass
+
+        # 7. Очистка рабочей памяти
         self.working.clear()
 
         report["status"] = "ok"
