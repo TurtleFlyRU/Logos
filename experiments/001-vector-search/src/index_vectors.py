@@ -3,19 +3,17 @@
 
 import os
 import pickle
-import sys
 from pathlib import Path
+
+import numpy as np
+from huggingface_hub import login
+from transformers import AutoTokenizer, AutoModel
+import torch
+
+from kernel.journal import Journal
 
 EXPERIMENTS_ROOT = Path(__file__).resolve().parent.parent
 REPO_ROOT = EXPERIMENTS_ROOT.parent.parent
-sys.path.insert(0, str(REPO_ROOT))
-
-import numpy as np  # noqa: E402
-from huggingface_hub import login  # noqa: E402
-from transformers import AutoTokenizer, AutoModel  # noqa: E402
-import torch  # noqa: E402
-
-from kernel.journal import Journal  # noqa: E402
 
 if os.environ.get("HF_TOKEN"):
     login(token=os.environ["HF_TOKEN"])
