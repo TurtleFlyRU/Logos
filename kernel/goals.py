@@ -184,6 +184,43 @@ class GoalMemory:
             json.dumps(serializable, indent=2, ensure_ascii=False)
         )
 
+    def next_action(self) -> dict[str, Any] | None:
+        """Какой шаг по плану сделать сейчас.
+
+        Returns:
+            dict с goal_id, title, action (continue/start/complete) или None
+        """
+        active = self.get_goals(status=GOAL_STATUS_IN_PROGRESS, limit=3)
+        if active:
+            g = active[0]
+            subgoals = self.get_goals(parent_id=g["id"])
+            next_sg = [sg for sg in subgoals if sg["status"] == GOAL_STATUS_TODO]
+            if next_sg:
+                ns = next_sg[0]
+                return {
+                    "goal_id": ns["id"],
+                    "parent_goal_id": g["id"],
+                    "title": ns["title"],
+                    "action": "start_subgoal",
+                    "context": g["title"],
+                }
+            if g["progress"] < 1.0:
+                return {
+                    "goal_id": g["id"],
+                    "title": g["title"],
+                    "action": "continue",
+                    "progress": g["progress"],
+                }
+        todo = self.get_goals(status=GOAL_STATUS_TODO, limit=3)
+        if todo:
+            g = todo[0]
+            return {
+                "goal_id": g["id"],
+                "title": g["title"],
+                "action": "start",
+            }
+        return None
+
     def summary(self) -> str:
         active = self.get_goals(status=GOAL_STATUS_IN_PROGRESS, limit=3)
         todo = self.get_goals(status=GOAL_STATUS_TODO, limit=5)

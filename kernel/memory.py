@@ -360,19 +360,17 @@ class Memory:
 
     def _plan(self, query: str, complexity_level: str = "medium") -> Any:
         """Запускает дискретный планировщик для выбора действия."""
-        import sys as _sys
-        planner_path = REPO_ROOT / "experiments" / "004-planner" / "src"
-        _sys.path.insert(0, str(planner_path))
-        from planner import ActionSpace, Planner, OutcomeMemory  # type: ignore[import-untyped]
+        from kernel.planner import ActionSpace, Planner, OutcomeMemory
 
-        data_dir = DATA_ROOT / "planner"
-        data_dir.mkdir(parents=True, exist_ok=True)
-        om = OutcomeMemory(str(data_dir / "outcomes.json"))
-
+        om = OutcomeMemory()
         space = ActionSpace(outcome_memory=om)
+
+        next_goal = self.goals.next_action()
+        goal_signal = 0.3 if next_goal else 0.0
+
         space.register(
             "respond", "Ответить напрямую",
-            utility_fn=lambda ctx: 0.8 if ctx.get("complexity") == "low" else 0.2,
+            utility_fn=lambda ctx: max(0.8 if ctx.get("complexity") == "low" else 0.2, goal_signal),
             probability_fn=lambda ctx: 0.95 if ctx.get("complexity") == "low" else 0.4,
         )
         space.register(
@@ -395,12 +393,23 @@ class Memory:
             utility_fn=lambda ctx: 0.8 if str(ctx.get("query", "")).startswith("sleep") else 0.1,
             probability_fn=lambda ctx: 0.8,
         )
+        space.register(
+            "advance_goal", "Продвинуться по плану",
+            utility_fn=lambda ctx: 0.7 + goal_signal,
+            probability_fn=lambda ctx: 0.8 if next_goal else 0.0,
+        )
 
-        self._planner = Planner(space)
-        return self._planner.decide_with_context(
+        self._planner = Planner(space, outcome_memory=om)
+        plan = self._planner.decide_with_context(
             query=query,
             complexity_level=complexity_level,
         )
+
+        # Если планировщик выбрал advance_goal — передаём какой
+        if plan.selected_action == "advance_goal" and next_goal:
+            plan.reasoning += f" | next: {next_goal['title']} ({next_goal['action']})"
+
+        return plan
 
     @property
     def external(self) -> "ExternalMemory":
