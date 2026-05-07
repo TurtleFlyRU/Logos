@@ -186,6 +186,14 @@ class Memory:
         self._external = None
         self._pulse_check_count = 0
         self._pulse_interval = 5  # проверка agent pulse раз в 5 respond()
+        self.boot()
+
+    def boot(self) -> str:
+        """Boot-протокол: ритуал пробуждения. Формирует и возвращает контекст."""
+        from kernel.boot import boot_context as _boot
+        context = _boot(self)
+        self.working.set_context("boot_context", context)
+        return context
 
     def assess_complexity(self, query: str, referenced_files: int = 0) -> dict[str, Any]:
         """Оценивает сложность запроса и возвращает сигнал бюджета."""
