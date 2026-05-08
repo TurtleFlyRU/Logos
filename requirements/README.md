@@ -8,10 +8,11 @@
 |------|------------|
 | `kernel-min.txt` | Ядро без ML: `memory`, `boot`, этика, цели, планировщик и т.д. — **без pip-пакетов** (только Python 3.10+). |
 | `kernel-ml.txt` | Эмбеддинги для `kernel/external.py`, `kernel/journal.py` (`numpy`, `torch`, `transformers`). |
-| `kernel-browser.txt` | `playwright` для `kernel/browser.py`. |
+| `kernel-browser.txt` | `playwright` для `kernel/browser.py`. После установки: `playwright install`. |
 | `kernel-dashboard.txt` | `streamlit` для `dashboard/app.py`. |
 | `cli.txt` | Нативный CLI: минимум ядра + HTTP-клиент (`httpx`). |
 | `dev.txt` | Тесты и линтинг: `pytest`, `ruff`, `mypy`. |
+| `full-local.txt` | Агрегат: `dev` + `kernel-ml` + браузер + дашборд + `cli`. |
 
 ## Примеры установки
 
