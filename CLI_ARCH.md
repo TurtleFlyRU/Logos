@@ -181,3 +181,101 @@ python eidos.py import-opencode   # импорт сессии из OpenCode в �
 **Архитектурно:** почта — это **ещё один транспорт**, как CLI: те же пайплайны этики и политики инструментов, отдельный модуль `kernel/mail/` или внешний микросервис с явным контрактом; не смешивать с основным циклом чата без очереди и лимитов.
 
 Почта и блог логично включать **после** стабильного CLI и явных API памяти — иначе сложно контролировать, что именно уходит наружу и что попадает в летопись.
+
+---
+
+## Репозиторий: структура, слои, зависимости
+
+Ниже — карта «что где лежит» и **кто от кого зависит** в коде и в пакетах. Удобно стыковать с будущим `cli/` и рефактором памяти.
+
+### Каталоги (физическая структура)
+
+| Путь | Роль |
+|------|------|
+| `kernel/` | Ядро: память, boot, планировщик, этика, журнал, внешняя память, цели, dashboard logic, браузер, OpenCode-адаптер |
+| `body/` | Оболочка развёртывания: `requirements.txt`, `bootstrap.sh`, `sleep.sh`, хуки |
+| `data/` | Рантайм-данные (часто в `.gitignore`): working, episodic, semantic, journal, external, planner, … Пути в `kernel/config.py` |
+| `tests/` | Pytest по ядру |
+| `experiments/` | Изолированные гипотезы + частично legacy-import через `sys.path` из `kernel/memory.py` (budget, verifier) |
+| `dashboard/` | Отдельное приложение Streamlit поверх `kernel.dashboard` |
+| `rubert-tiny2/`, `all-MiniLM-L6-v2/` | Локальные веса эмбеддеров (не Python-пакеты) |
+
+Планируемый **`cli/`** + **`eidos.py`** в корне — новый слой **над** `kernel`, без циклических импортов внутрь себя.
+
+### Внутренний граф ядра (упрощённо)
+
+```
+kernel/config.py          ← только stdlib (paths)
+kernel/utils.py, compress.py, salience.py
+kernel/planner.py         ← config + файлы outcomes
+kernel/opencode_adapter.py ← stdlib + SQLite путь ~/.local/.../opencode.db
+kernel/instrumental.py    ← config
+kernel/goals.py           ← config
+kernel/ethics.py          ← config
+kernel/health.py          ← config
+
+kernel/memory.py          ← ЦЕНТР: WorkingMemory, EpisodicMemory, SemanticMemory, Memory
+                              ├→ config, utils (atomic_write)
+                              ├→ goals (прямой импорт)
+                              ├→ лениво: external.ExternalMemory, journal.Journal
+                              ├→ sleep → compress, salience; ethics через record_episode
+                              └→ assess_complexity / verify: experiments на sys.path
+
+kernel/boot.py            ← boot_context(memory); опционально OpenCodeAdapter внутри
+
+kernel/agent_pulse.py     ← Memory (типичный паттерн «обёртка над Memory»)
+kernel/mission_control.py ← Memory + config
+
+kernel/external.py        ← numpy + transformers + torch (ленивая загрузка модели)
+kernel/journal.py         ← то же для векторного поиска по дневнику
+kernel/browser.py         ← playwright
+
+kernel/dashboard.py       ← health + instrumental + DB reads
+```
+
+**Правило для нового кода:** фичи, которые не должны тянуть ML или браузер при старте CLI, вызывать **через ленивые методы** как у `Memory.external()`, либо выносить в отдельные подпакеты с опциональными extras.
+
+### Внешние зависимости (факт по импортам)
+
+| Уровень | Пакеты | Где используется |
+|---------|--------|-------------------|
+| **Минимум (stdlib)** | — | `config`, большая часть `memory`, `boot`, `ethics`, `goals`, `planner`, `instrumental`, `health`, `opencode_adapter` |
+| **ML / векторы** | `numpy`, `torch`, `transformers` | `external.py`, `journal.py` (ленивая загрузка `rubert-tiny2`) |
+| **Браузер** | `playwright` | `browser.py` |
+| **UI** | `streamlit` | `dashboard/app.py` |
+| **Тесты** | `pytest` | `tests/` |
+
+Файл `body/requirements.txt` сейчас почти пустой (комментарий про опциональность); реальный минимум для полного функционала эмбеддингов нужно **зафиксировать версиями** при упаковке CLI (отдельный `requirements-cli.txt` или extras в будущем `pyproject.toml`).
+
+### Эксперименты и динамический `sys.path`
+
+`Memory.assess_complexity` и верификация подмешивают в `sys.path` каталоги `experiments/002-*` и `003-*`. Это **скрытая связность**: будущий CLI либо переносит эти модули в `kernel/`, либо регистрирует их как явные плагины с интерфейсом.
+
+### Зависимости будущего `cli/` (целевые)
+
+| Зависимость | Для чего |
+|-------------|----------|
+| `kernel.*` | Память, boot-пайплайн, инструменты, при необходимости planner/ethics |
+| HTTP-клиент | Вызов OpenAI-compatible API (`urllib` достаточно для минимализма; `httpx` удобнее для стриминга позже) |
+| Опционально | `python-dotenv` для `.env`; позже async-библиотека если перейдёте на asyncio |
+
+CLI **не должен** импортировать `dashboard/` и по умолчанию — не импортировать `playwright` / `transformers`, пока пользователь не включил соответствующий инструмент.
+
+### Диаграмма слоёв (кто кого может звать)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  transports: cli/ (будущее), dashboard/, body/*.sh    │
+└───────────────────────────┬─────────────────────────────┘
+                            │ импорт
+┌───────────────────────────▼─────────────────────────────┐
+│  kernel/  — когнитика, память, политики                  │
+│  (избегать обратных импортов из kernel в cli)           │
+└───────────────────────────┬─────────────────────────────┘
+                            │ файлы / SQLite
+┌───────────────────────────▼─────────────────────────────┐
+│  data/  +  BOOK.md / JOURNAL.md (текстовые носители)    │
+└─────────────────────────────────────────────────────────┘
+```
+
+Итого: **единственный «тяжёлый хаб» — `Memory` и `config`;** ML и браузер — краевые опциональные модули; **CLI** — тонкий транспорт и пайплайны поверх стабильных API памяти (после рефактора — явные интерфейсы видов памяти).
