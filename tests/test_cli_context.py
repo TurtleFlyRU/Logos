@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from cli.context import build_chat_messages_for_llm, wm_events_to_chat_messages
+from cli.context import (
+    build_chat_messages_for_llm,
+    tools_allowed_for_chat_line,
+    wm_events_to_chat_messages,
+)
 
 
 class _Ep:
@@ -25,6 +29,19 @@ class _Ep:
 class _Ext:
     def search(self, *_a, **_kw):
         return []
+
+
+def test_tools_allowed_for_chat_line_identity(monkeypatch):
+    monkeypatch.delenv("EIDOS_CHAT_TOOLS_ON_IDENTITY", raising=False)
+
+    assert tools_allowed_for_chat_line("кто я") is False
+    assert tools_allowed_for_chat_line("прочитай README.md и summary") is True
+
+
+def test_tools_on_identity_env_overrides(monkeypatch):
+    monkeypatch.setenv("EIDOS_CHAT_TOOLS_ON_IDENTITY", "1")
+
+    assert tools_allowed_for_chat_line("кто я") is True
 
 
 def test_wm_events_filters_session_and_role():

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from cli.context import build_chat_messages_for_llm
+from cli.context import build_chat_messages_for_llm, tools_allowed_for_chat_line
 from cli.identity import try_capture_user_display_name
 from cli.llm import LLMConfigError, chat_completions, format_llm_pending_banner
 
@@ -21,6 +21,8 @@ def _cli_chat_llm_reply(
     session_id: str,
     tags: list[str],
     messages: list[dict[str, Any]],
+    *,
+    allow_tools: bool = True,
 ) -> str | None:
     """Один пользовательский ход: опционально цикл tool_calls и финальный текст."""
     from cli.llm import chat_completion_assistant_message
@@ -36,6 +38,10 @@ def _cli_chat_llm_reply(
     if not tools_enabled():
         text = chat_completions(messages)
         return text if (text or "").strip() else None
+
+    if not allow_tools:
+        amsg = chat_completion_assistant_message(messages, tools=None)
+        return ((amsg.get("content") or "").strip() or None)
 
     from kernel.instrumental import InstrumentalRegistry
 
@@ -208,7 +214,13 @@ def run_chat_interactive(
             )
             try:
                 print(format_llm_pending_banner(), flush=True)
-                reply = _cli_chat_llm_reply(memory, session_id, tags, messages)
+                reply = _cli_chat_llm_reply(
+                    memory,
+                    session_id,
+                    tags,
+                    messages,
+                    allow_tools=tools_allowed_for_chat_line(line),
+                )
                 if not (reply or "").strip():
                     print(
                         "[eidos] Модель вернула пустой ответ. Проверьте LLM_MODEL "

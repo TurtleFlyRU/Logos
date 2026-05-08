@@ -21,6 +21,9 @@
 - ``EIDOS_CHAT_USER_IDENTITY`` — ``0``: не добавлять строку с именем из WM ``context['user_display_name']``
   (по умолчанию вкл.; имя выставляется из фраз «меня зовут …» и т.п.).
 
+- ``EIDOS_CHAT_TOOLS_ON_IDENTITY`` — ``1``: разрешить tool_calls даже на короткие вопросы «кто я» и т.п.
+  (по умолчанию для таких реплик инструменты **не** передаются в API — только текст из памяти в system).
+
 WM / boot / принципы (статичный блок в system)
 - ``EIDOS_CHAT_ATTENTION``, ``EIDOS_CHAT_BOOT_SNIPPET``, ``EIDOS_CHAT_BOOT_SNIPPET_CHARS``,
   ``EIDOS_CHAT_PRINCIPLES``.
@@ -39,11 +42,13 @@ from typing import Any
 
 CLI_CHAT_PERSONA = (
     "Ты Эйдос — со-исследователь; отвечай от первого лица («я»), не называй себя «ты Эйдос». "
-    "Если в system ниже есть выгрузка из памяти (эпизоды, принципы, дневник, внешние документы — "
-    "по выбранному пайплайну), опирайся на неё для фактов; если факта нет там и в текущем диалоге — "
-    "честно скажи, что не знаешь, не выдумывай. "
-    "Если нужно проверить цикл инструментов — доступны функции eidos_echo и "
-    "read_workspace_file (только файлы внутри репозитория)."
+    "Факты о пользователе и прошлые события смотри В ЭТОМ ЖЕ system-сообщении: блок "
+    "«Активное извлечение из памяти», строка «Пользователь (CLI…)», слоты внимания, хвост чата — "
+    "это и есть память Эйдоса (SQLite / WM), а не файлы репозитория на диске. "
+    "Не утвердай что «память пуста», если в блоке есть эпизоды или указано имя; если блок явно "
+    "говорит что записей нет и в диалоге имени нет — так и скажи кратко. "
+    "На короткие вопросы вроде «кто я», «как меня зовут» инструменты не вызывай — отвечай по этому тексту и истории чата. "
+    "Иначе при необходимости доступны eidos_echo и read_workspace_file (только файлы репозитория)."
 )
 
 _DEFAULT_WM_MESSAGES = 40
@@ -254,6 +259,21 @@ def format_user_identity_block(memory: Any) -> str:
     if not name:
         return ""
     return f"— Пользователь (CLI, явно указано в диалоге): имя — {name}.\n"
+
+
+def is_identity_meta_query(line: str, *, max_len: int = 160) -> bool:
+    """Короткий запрос про личность пользователя — без инструментов, только память в system."""
+    s = (line or "").strip()
+    if len(s) > max_len:
+        return False
+    return bool(_IDENTITY_QUESTION_RE.search(s))
+
+
+def tools_allowed_for_chat_line(line: str) -> bool:
+    """Инструменты для этого ввода: по умолчанию выключаются на короткие identity-вопросы."""
+    if _env_flag("EIDOS_CHAT_TOOLS_ON_IDENTITY", default=False):
+        return True
+    return not is_identity_meta_query(line)
 
 
 def _lex_score_blob(blob: str, cues: list[str]) -> float:
