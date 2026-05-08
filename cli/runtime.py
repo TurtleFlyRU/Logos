@@ -37,6 +37,12 @@ def run_chat_interactive(
         except EOFError:
             print()
             break
+        except KeyboardInterrupt:
+            print(
+                "\n[eidos] Прервано на приглашении. Выход: /exit или /quit.",
+                flush=True,
+            )
+            continue
         if not line:
             continue
         low = line.lower()
@@ -79,6 +85,9 @@ def run_chat_interactive(
                         flush=True,
                     )
                     reply = None
+            except KeyboardInterrupt:
+                print("\n[eidos] Запрос к модели прерван (Ctrl+C).", flush=True)
+                reply = None
             except LLMConfigError as exc:
                 print(f"[eidos] {exc}", flush=True)
                 reply = None
@@ -128,6 +137,9 @@ def run_ask(question: str, *, use_llm: bool = True) -> int:
         except httpx.HTTPError as exc:
             print(f"HTTP ошибка: {exc}", file=sys.stderr)
             return 3
+        except KeyboardInterrupt:
+            print("\n[eidos] Прервано.", flush=True)
+            return 130
 
     print(f"[stub] {question}")
     return 0

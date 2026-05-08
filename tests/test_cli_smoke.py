@@ -97,3 +97,44 @@ def test_ask_missing_key_returns_2(monkeypatch):
     r = _run(["ask", "ping"])
     assert r.returncode == 2
     assert "LLM_API_KEY" in r.stderr or "DEEPSEEK" in r.stderr
+
+
+def test_chat_keyboard_interrupt_during_llm_no_traceback(monkeypatch, capsys):
+    sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+    class FakeWM:
+        def __init__(self) -> None:
+            self.events: list = []
+            self.data = {"events": self.events}
+
+        def add_event(self, ev):
+            self.events.append(ev)
+
+    class FakeMemory:
+        def __init__(self) -> None:
+            self.working = FakeWM()
+
+    inputs = iter(["hi", "/exit"])
+    monkeypatch.setattr("builtins.input", lambda _="": next(inputs))
+
+    def boom(*_a, **_k):
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr("cli.runtime.chat_completions", boom)
+    monkeypatch.setattr("cli.session.touch_session", lambda *a, **k: None)
+
+    from cli.runtime import run_chat_interactive
+
+    run_chat_interactive(FakeMemory(), sid, use_llm=True)
+    out = capsys.readouterr().out
+    assert "прерван" in out.lower()
+
+
+def test_ask_keyboard_interrupt_returns_130(monkeypatch):
+    def fake(*_a, **_k):
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr("cli.runtime.chat_completions", fake)
+    from cli.runtime import run_ask
+
+    assert run_ask("q", use_llm=True) == 130
