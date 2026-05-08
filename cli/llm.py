@@ -5,6 +5,7 @@
 - LLM_TIMEOUT_SEC — таймаут **чтения** ответа (сек), по умолчанию 120.
 - LLM_IGNORE_PROXY — ``1``/``true``: не подхватывать HTTP(S)_PROXY (trust_env=False).
 - LLM_DEBUG — если задан: перед запросом печатается URL и модель (без ключа).
+- LLM_PROGRESS — ``0``/``false``: не печатать строки HTTP → / ← (по умолчанию включено).
 """
 
 from __future__ import annotations
@@ -21,6 +22,16 @@ DEFAULT_MODEL = "deepseek-chat"
 
 _CONNECT_SEC = 30.0
 _POOL_WRITE_SEC = 30.0
+
+# Этапы для heartbeat (факт «на какой стадии обмена мы зависли»).
+_PHASE_PRE = "pre_request"
+_PHASE_AWAIT_HEAD = "await_response_head"
+_PHASE_READ_BODY = "read_body"
+_WAIT_HINT = {
+    _PHASE_PRE: "до отправки запроса (соединение, TLS)",
+    _PHASE_AWAIT_HEAD: "после отправки: статус и заголовки ответа",
+    _PHASE_READ_BODY: "после статуса: тело ответа",
+}
 
 
 class LLMConfigError(RuntimeError):
@@ -44,6 +55,11 @@ def llm_settings() -> tuple[str, str, str]:
     return api_key, base, model
 
 
+def _progress_print_enabled() -> bool:
+    v = os.environ.get("LLM_PROGRESS", "1").strip().lower()
+    return v not in ("0", "false", "no", "off")
+
+
 def _read_timeout_sec() -> float:
     raw = os.environ.get("LLM_TIMEOUT_SEC", "").strip()
     if not raw:
@@ -63,14 +79,31 @@ def format_llm_pending_banner() -> str:
         or base.replace("https://", "").replace("http://", "").split("/")[0]
     )
     rs = _read_timeout_sec()
-    proxy_tip = (
-        " Прокси из окружения учитываются — при «тишине» попробуйте LLM_IGNORE_PROXY=1."
-        if _http_trust_env()
-        else ""
-    )
+    proxy_env = "да" if _http_trust_env() else "нет"
     return (
-        f"[eidos] Запрос к модели… {host} · {model} · чтение до {rs:.0f} с.{proxy_tip}"
+        f"[eidos] LLM {host} · модель {model} · таймаут чтения {rs:.0f} с · "
+        f"прокси из env: {proxy_env}"
     )
+
+
+def _phase_hooks(phase: dict[str, str]) -> dict[str, list]:
+    show = _progress_print_enabled()
+
+    def on_request(request: httpx.Request) -> None:
+        phase["stage"] = _PHASE_AWAIT_HEAD
+        if show:
+            path = request.url.path or "/"
+            print(f"[eidos] HTTP → {request.method} {path}", flush=True)
+
+    def on_response(response: httpx.Response) -> None:
+        phase["stage"] = _PHASE_READ_BODY
+        if show:
+            print(
+                f"[eidos] HTTP ← {response.status_code} {response.reason_phrase}",
+                flush=True,
+            )
+
+    return {"request": [on_request], "response": [on_response]}
 
 
 def chat_completions(
@@ -103,8 +136,11 @@ def chat_completions(
     if os.environ.get("LLM_DEBUG", "").strip():
         print(f"[eidos] LLM_DEBUG POST {url} model={model}", flush=True)
 
+    stop_hb = threading.Event()
     close_client = False
+
     if client is None:
+        phase: dict[str, str] = {"stage": _PHASE_PRE}
         timeout_cfg = httpx.Timeout(
             read_sec,
             connect=_CONNECT_SEC,
@@ -116,19 +152,19 @@ def chat_completions(
             timeout=timeout_cfg,
             trust_env=_http_trust_env(),
             http2=False,
+            event_hooks=_phase_hooks(phase),
         )
         close_client = True
 
-    stop_hb = threading.Event()
+        def _heartbeat() -> None:
+            delays = [5.0] + [12.0] * 500
+            for wait_sec in delays:
+                if stop_hb.wait(wait_sec):
+                    return
+                stage = phase.get("stage", _PHASE_PRE)
+                hint = _WAIT_HINT.get(stage, "сеть")
+                print(f"[eidos] Ожидание: {hint}.", flush=True)
 
-    def _heartbeat() -> None:
-        delays = [5.0] + [12.0] * 500
-        for wait_sec in delays:
-            if stop_hb.wait(wait_sec):
-                return
-            print("[eidos] Всё ещё ждём ответ от API…", flush=True)
-
-    if close_client:
         threading.Thread(target=_heartbeat, daemon=True).start()
 
     try:

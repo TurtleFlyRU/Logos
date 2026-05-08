@@ -32,7 +32,9 @@ def _friendly_http_status_line(code: int) -> str | None:
     }.get(code)
 
 
-def _http_error_body_snippet(response: httpx.Response, max_len: int = 900) -> str | None:
+def _http_error_body_snippet(
+    response: httpx.Response, max_len: int = 900
+) -> str | None:
     """Обрезка тела ответа для терминала (ошибки API часто приходят как JSON/HTML)."""
     try:
         raw = response.content[: max_len + 120]
@@ -142,11 +144,9 @@ def run_chat_interactive(
                     )
                     reply = None
             except KeyboardInterrupt:
-                print("\n[eidos] Прервано (Ctrl+C): ответ от API ещё не получен.", flush=True)
                 print(
-                    "[eidos] Сообщение провайдера в терминале бывает только после полного "
-                    "ответа (HTTP 4xx/5xx и тело). Долгое ожидание без кода — это сеть или "
-                    "очередь у API; см. LLM_IGNORE_PROXY, LLM_TIMEOUT_SEC.",
+                    "\n[eidos] Ctrl+C — запрос прерван (этап смотрите по последним строкам "
+                    "«HTTP → / ←» и «Ожидание: …» выше).",
                     flush=True,
                 )
                 reply = None
@@ -211,8 +211,7 @@ def run_ask(question: str, *, use_llm: bool = True) -> int:
             return 3
         except KeyboardInterrupt:
             print(
-                "\n[eidos] Прервано до ответа API — текст ошибки провайдера в этом случае "
-                "недоступен.",
+                "\n[eidos] Ctrl+C — прервано (этап: строки HTTP → / ← и «Ожидание» выше).",
                 flush=True,
             )
             return 130

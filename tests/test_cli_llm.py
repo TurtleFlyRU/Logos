@@ -30,7 +30,8 @@ def test_format_llm_pending_banner(monkeypatch):
     line = format_llm_pending_banner()
     assert "api.deepseek.com" in line
     assert "deepseek-chat" in line
-    assert "чтение до" in line
+    assert "таймаут чтения" in line
+    assert "прокси из env:" in line
 
 
 def test_chat_completions_with_mock(monkeypatch):
