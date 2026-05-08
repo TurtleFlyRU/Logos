@@ -386,6 +386,27 @@ class EpisodicMemory:
         ]
         return [dict(zip(columns, row)) for row in rows]
 
+    def query_all(
+        self,
+        min_salience: float = 0.0,
+        max_rows: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Все эпизоды (или первые max_rows по свежести). Для retrieval без искусственного «хвоста 200»."""
+        columns = [
+            d[1] for d in self._conn.execute("PRAGMA table_info(episodes)").fetchall()
+        ]
+        if max_rows is None:
+            rows = self._conn.execute(
+                "SELECT * FROM episodes WHERE salience >= ? ORDER BY timestamp DESC",
+                (min_salience,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT * FROM episodes WHERE salience >= ? ORDER BY timestamp DESC LIMIT ?",
+                (min_salience, max_rows),
+            ).fetchall()
+        return [dict(zip(columns, row)) for row in rows]
+
     def update_episode(
         self,
         episode_id: int,
