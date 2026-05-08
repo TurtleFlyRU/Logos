@@ -14,8 +14,6 @@ from kernel.config import (
     WORKING_MEMORY_PATH,
     EPISODIC_DB_PATH,
     SEMANTIC_DB_PATH,
-    COMPUTE_BUDGET_SRC,
-    VERIFICATION_SRC,
     SLEEP_LOCK_PATH,
     SLEEP_CHECKPOINT_PATH,
     SLEEP_LAST_WORDS_PATH,
@@ -805,10 +803,7 @@ class Memory:
         self, query: str, referenced_files: int = 0
     ) -> dict[str, Any]:
         """Оценивает сложность запроса и возвращает сигнал бюджета."""
-        import sys as _sys
-
-        _sys.path.insert(0, str(COMPUTE_BUDGET_SRC))
-        from budget import BudgetSignal  # type: ignore[import-untyped]
+        from kernel.budget import BudgetSignal
 
         signaler = BudgetSignal()
         return signaler.evaluate(query, referenced_files)
@@ -919,10 +914,7 @@ class Memory:
         verification_success = True
 
         if needs_verify and draft:
-            import sys as _sys
-
-            _sys.path.insert(0, str(VERIFICATION_SRC))
-            from verifier import Verifier  # type: ignore[import-untyped]
+            from kernel.verifier import Verifier
 
             v = Verifier()
             verification = v.verify_and_format(draft, query)

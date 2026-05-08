@@ -59,6 +59,5 @@ EXPERIMENTS_ROOT = REPO_ROOT / "experiments"
 RUBERT_MODEL_PATH = REPO_ROOT / "rubert-tiny2"
 ALL_MINILM_MODEL_PATH = REPO_ROOT / "all-MiniLM-L6-v2"
 
-# Experiment imports (legacy)
-COMPUTE_BUDGET_SRC = REPO_ROOT / "experiments" / "002-compute-budget" / "src"
-VERIFICATION_SRC = REPO_ROOT / "experiments" / "003-verification" / "src"
+# experiments/* остаются в репозитории как исторические артефакты,
+# но ядро kernel/* не должно зависеть от них через sys.path.
