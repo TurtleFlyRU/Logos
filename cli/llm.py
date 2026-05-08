@@ -3,9 +3,9 @@
 Переменные окружения:
 - LLM_API_KEY / DEEPSEEK_API_KEY, LLM_BASE_URL, LLM_MODEL.
 - LLM_TIMEOUT_SEC — таймаут чтения (сек), по умолчанию 120.
-- LLM_TRUST_ENV — ``1``/``true``/``yes``: подхватывать HTTP_PROXY и системный прокси.
-  По умолчанию **не** подхватывает — иначе часто «вечное» ожидание после «Запрос к модели…»
-  из‑за прокси в окружении, через который этот API не ходит.
+- LLM_IGNORE_PROXY — если ``1``/``true``/``yes``: не подхватывать HTTP(S)_PROXY
+  (``httpx.Client(..., trust_env=False)``). По умолчанию — как у обычного httpx:
+  **прокси из окружения учитываются** (как в первой рабочей версии CLI).
 """
 
 from __future__ import annotations
@@ -24,8 +24,11 @@ class LLMConfigError(RuntimeError):
 
 
 def _http_trust_env() -> bool:
-    v = os.environ.get("LLM_TRUST_ENV", "").strip().lower()
-    return v in ("1", "true", "yes", "on")
+    """По умолчанию True (как httpx); отключить прокси из env — LLM_IGNORE_PROXY."""
+    v = os.environ.get("LLM_IGNORE_PROXY", "").strip().lower()
+    if v in ("1", "true", "yes", "on"):
+        return False
+    return True
 
 
 def llm_settings() -> tuple[str, str, str]:
@@ -64,7 +67,6 @@ def chat_completions(
         )
 
     read_sec = timeout if timeout is not None else _read_timeout_sec()
-    connect_sec = min(30.0, read_sec)
 
     url = f"{base}/chat/completions"
     headers = {
@@ -75,13 +77,7 @@ def chat_completions(
 
     close_client = False
     if client is None:
-        timeout_cfg = httpx.Timeout(
-            read_sec,
-            connect=connect_sec,
-            read=read_sec,
-            pool=connect_sec,
-        )
-        client = httpx.Client(timeout=timeout_cfg, trust_env=_http_trust_env())
+        client = httpx.Client(timeout=read_sec, trust_env=_http_trust_env())
         close_client = True
     try:
         response = client.post(url, headers=headers, json=payload)

@@ -86,7 +86,7 @@ def run_chat_interactive(
                 print(
                     f"[eidos] Таймаут запроса к API ({exc!s}). "
                     "Проверьте сеть и LLM_BASE_URL (LLM_TIMEOUT_SEC — лимит в секундах). "
-                    "Если нужен системный HTTP(S)_PROXY — задайте LLM_TRUST_ENV=1.",
+                    "Если подозреваете лишний прокси в окружении — export LLM_IGNORE_PROXY=1.",
                     flush=True,
                 )
                 reply = None
