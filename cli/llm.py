@@ -2,21 +2,24 @@
 
 Переменные окружения:
 - LLM_API_KEY / DEEPSEEK_API_KEY, LLM_BASE_URL, LLM_MODEL.
-- LLM_TIMEOUT_SEC — таймаут чтения (сек), по умолчанию 120.
-- LLM_IGNORE_PROXY — если ``1``/``true``/``yes``: не подхватывать HTTP(S)_PROXY
-  (``httpx.Client(..., trust_env=False)``). По умолчанию — как у обычного httpx:
-  **прокси из окружения учитываются** (как в первой рабочей версии CLI).
+- LLM_TIMEOUT_SEC — таймаут **чтения** ответа (сек), по умолчанию 120.
+- LLM_IGNORE_PROXY — ``1``/``true``: не подхватывать HTTP(S)_PROXY (trust_env=False).
+- LLM_DEBUG — если задан: перед запросом печатается URL и модель (без ключа).
 """
 
 from __future__ import annotations
 
 import os
+import threading
 from typing import Any
 
 import httpx
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-chat"
+
+_CONNECT_SEC = 45.0
+_POOL_WRITE_SEC = 30.0
 
 
 class LLMConfigError(RuntimeError):
@@ -73,10 +76,34 @@ def chat_completions(
     }
     payload = {"model": model, "messages": messages}
 
+    if os.environ.get("LLM_DEBUG", "").strip():
+        print(f"[eidos] LLM_DEBUG POST {url} model={model}", flush=True)
+
     close_client = False
     if client is None:
-        client = httpx.Client(timeout=read_sec, trust_env=_http_trust_env())
+        timeout_cfg = httpx.Timeout(
+            read_sec,
+            connect=_CONNECT_SEC,
+            read=read_sec,
+            write=_POOL_WRITE_SEC,
+            pool=_POOL_WRITE_SEC,
+        )
+        client = httpx.Client(
+            timeout=timeout_cfg,
+            trust_env=_http_trust_env(),
+            http2=False,
+        )
         close_client = True
+
+    stop_hb = threading.Event()
+
+    def _heartbeat() -> None:
+        while not stop_hb.wait(15.0):
+            print("[eidos] Всё ещё ждём ответ от API…", flush=True)
+
+    if close_client:
+        threading.Thread(target=_heartbeat, daemon=True).start()
+
     try:
         response = client.post(url, headers=headers, json=payload)
         response.raise_for_status()
@@ -92,5 +119,6 @@ def chat_completions(
             raise LLMConfigError(f"Нет message.content в ответе: {detail}")
         return str(content).strip()
     finally:
+        stop_hb.set()
         if close_client:
             client.close()
