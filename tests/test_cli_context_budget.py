@@ -63,3 +63,31 @@ def test_total_char_budget_is_monotonic(monkeypatch):
     # монотонность: больше бюджета -> не меньше content в сумме
     assert big >= small
 
+
+def test_old_history_is_summarized_into_system_block(monkeypatch):
+    monkeypatch.setenv("EIDOS_CHAT_PRINCIPLES", "0")
+    monkeypatch.setenv("EIDOS_CHAT_BOOT_SNIPPET", "0")
+    monkeypatch.setenv("EIDOS_CHAT_ACTIVE_MEMORY", "0")
+    monkeypatch.setenv("EIDOS_CHAT_MEMORY_PIPELINE", "episodic_only")
+
+    # включаем фазу 8.2: summary старой истории
+    monkeypatch.setenv("EIDOS_CHAT_SUMMARIZE_OLD_WM", "1")
+    monkeypatch.setenv("EIDOS_CHAT_KEEP_LAST_MESSAGES", "6")
+    monkeypatch.setenv("EIDOS_CHAT_SUMMARY_CHARS", "1200")
+    monkeypatch.setenv("EIDOS_CHAT_TOTAL_CHARS", "4000")
+
+    sid = "s"
+    events = []
+    for i in range(40):
+        events.append({"role": "user", "content": f"U{i} " + ("x" * 80), "cli_session_id": sid})
+        events.append({"role": "assistant", "content": f"A{i} " + ("y" * 80), "cli_session_id": sid})
+
+    mem = _make_mem(events)
+    msgs = build_chat_messages_for_llm(mem, sid)
+
+    # system + summary system + tail + last user message
+    assert msgs[0]["role"] == "system"
+    assert any(m.get("role") == "system" and "Сжатая история" in str(m.get("content")) for m in msgs[1:3])
+    assert msgs[-1]["role"] in ("user", "assistant")
+    assert estimate_messages_chars(msgs) <= 4000
+

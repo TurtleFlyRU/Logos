@@ -59,6 +59,8 @@ _DEFAULT_ACTIVE_MEMORY_CHARS = 12000
 _DEFAULT_ACTIVE_RECENT = 6
 _DEFAULT_ACTIVE_KEYWORD_TOP = 12
 _DEFAULT_TOTAL_CHAT_CHARS = 0  # 0/пусто — выключено (сохраняем поведение v1)
+_DEFAULT_SUMMARY_CHARS = 6000
+_DEFAULT_KEEP_LAST_MESSAGES = 16
 
 
 def _env_flag(name: str, *, default: bool = True) -> bool:
@@ -114,6 +116,31 @@ def _total_chat_char_budget() -> int:
         return _DEFAULT_TOTAL_CHAT_CHARS
 
 
+def _summarize_old_wm_enabled() -> bool:
+    """Включить сжатие старой части истории WM в один system-блок."""
+    return _env_flag("EIDOS_CHAT_SUMMARIZE_OLD_WM", default=False)
+
+
+def _summary_char_budget() -> int:
+    raw = os.environ.get("EIDOS_CHAT_SUMMARY_CHARS", "").strip()
+    if raw == "":
+        return _DEFAULT_SUMMARY_CHARS
+    try:
+        return max(800, min(120_000, int(raw)))
+    except ValueError:
+        return _DEFAULT_SUMMARY_CHARS
+
+
+def _keep_last_messages() -> int:
+    raw = os.environ.get("EIDOS_CHAT_KEEP_LAST_MESSAGES", "").strip()
+    if raw == "":
+        return _DEFAULT_KEEP_LAST_MESSAGES
+    try:
+        return max(4, min(120, int(raw)))
+    except ValueError:
+        return _DEFAULT_KEEP_LAST_MESSAGES
+
+
 def estimate_messages_chars(messages: list[dict[str, Any]]) -> int:
     """Грубая оценка размера payload: суммарная длина content."""
     total = 0
@@ -124,6 +151,35 @@ def estimate_messages_chars(messages: list[dict[str, Any]]) -> int:
     return total
 
 
+def _render_compact_history_summary(
+    history: list[dict[str, Any]], *, max_chars: int
+) -> str:
+    """Сжимает историю в компактный текст (без вызова LLM).
+
+    Идея: не терять полностью раннюю нить — хотя бы зафиксировать последовательность
+    user/assistant реплик, урезая каждую до короткого фрагмента.
+    """
+    lines: list[str] = ["— Сжатая история (ранние реплики):"]
+    used = len(lines[0]) + 1
+    for m in history:
+        role = str(m.get("role", "?"))
+        content = m.get("content")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        snippet = content.strip().replace("\n", " ")
+        snippet = snippet[:240]
+        line = f"  [{role}] {snippet}"
+        if used + len(line) + 1 > max_chars:
+            lines.append("  … (обрезано по бюджету summary)")
+            break
+        lines.append(line)
+        used += len(line) + 1
+    text = "\n".join(lines).strip()
+    if len(text) > max_chars:
+        text = text[: max_chars - 1] + "…"
+    return text
+
+
 def _apply_total_char_budget(
     messages: list[dict[str, Any]], *, total_budget: int
 ) -> list[dict[str, Any]]:
@@ -132,8 +188,23 @@ def _apply_total_char_budget(
 
     # 1) режем хвост истории (сохраняем system и последние реплики)
     out = list(messages)
+    if _summarize_old_wm_enabled() and len(out) > 1:
+        keep_last = _keep_last_messages()
+        summary_budget = _summary_char_budget()
+
+        # Сжимаем раннюю историю максимум один раз (детерминированно).
+        # Если после этого всё ещё не влезает — продолжаем удалять.
+        hist = out[1:]
+        if len(hist) > keep_last + 4:
+            early = hist[: -keep_last]
+            tail = hist[-keep_last:]
+            summary_text = _render_compact_history_summary(
+                early, max_chars=summary_budget
+            )
+            out = [out[0], {"role": "system", "content": summary_text}, *tail]
+
     while len(out) > 1 and estimate_messages_chars(out) > total_budget:
-        # out[0] = system, out[1] = самый старый исторический
+        # out[0] = system, out[1] = самый старый исторический (или summary-блок)
         del out[1]
 
     # 2) если всё ещё не влезает — урежем system (крайний случай)
