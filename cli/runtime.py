@@ -82,6 +82,14 @@ def run_chat_interactive(
             except LLMConfigError as exc:
                 print(f"[eidos] {exc}", flush=True)
                 reply = None
+            except httpx.TimeoutException as exc:
+                print(
+                    f"[eidos] Таймаут запроса к API ({exc!s}). "
+                    "Проверьте сеть и LLM_BASE_URL (LLM_TIMEOUT_SEC — лимит в секундах). "
+                    "Если нужен системный HTTP(S)_PROXY — задайте LLM_TRUST_ENV=1.",
+                    flush=True,
+                )
+                reply = None
             except httpx.HTTPError as exc:
                 print(f"[eidos] Ошибка HTTP: {exc}", flush=True)
                 reply = None

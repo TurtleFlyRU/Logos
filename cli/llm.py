@@ -1,4 +1,12 @@
-"""OpenAI-compatible chat completions (DeepSeek, локальные прокси и т.д.)."""
+"""OpenAI-compatible chat completions (DeepSeek, локальные прокси и т.д.).
+
+Переменные окружения:
+- LLM_API_KEY / DEEPSEEK_API_KEY, LLM_BASE_URL, LLM_MODEL.
+- LLM_TIMEOUT_SEC — таймаут чтения (сек), по умолчанию 120.
+- LLM_TRUST_ENV — ``1``/``true``/``yes``: подхватывать HTTP_PROXY и системный прокси.
+  По умолчанию **не** подхватывает — иначе часто «вечное» ожидание после «Запрос к модели…»
+  из‑за прокси в окружении, через который этот API не ходит.
+"""
 
 from __future__ import annotations
 
@@ -15,6 +23,11 @@ class LLMConfigError(RuntimeError):
     """Нет ключа или некорректная конфигурация для вызова API."""
 
 
+def _http_trust_env() -> bool:
+    v = os.environ.get("LLM_TRUST_ENV", "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
 def llm_settings() -> tuple[str, str, str]:
     api_key = (
         os.environ.get("LLM_API_KEY")
@@ -26,10 +39,20 @@ def llm_settings() -> tuple[str, str, str]:
     return api_key, base, model
 
 
+def _read_timeout_sec() -> float:
+    raw = os.environ.get("LLM_TIMEOUT_SEC", "").strip()
+    if not raw:
+        return 120.0
+    try:
+        return max(5.0, float(raw))
+    except ValueError:
+        return 120.0
+
+
 def chat_completions(
     messages: list[dict[str, Any]],
     *,
-    timeout: float = 120.0,
+    timeout: float | None = None,
     client: httpx.Client | None = None,
 ) -> str:
     """POST /chat/completions; возвращает текст из первого choice."""
@@ -40,6 +63,9 @@ def chat_completions(
             "(опционально LLM_BASE_URL, LLM_MODEL)."
         )
 
+    read_sec = timeout if timeout is not None else _read_timeout_sec()
+    connect_sec = min(30.0, read_sec)
+
     url = f"{base}/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -49,8 +75,13 @@ def chat_completions(
 
     close_client = False
     if client is None:
-        timeout_cfg = httpx.Timeout(timeout, connect=min(30.0, timeout))
-        client = httpx.Client(timeout=timeout_cfg)
+        timeout_cfg = httpx.Timeout(
+            read_sec,
+            connect=connect_sec,
+            read=read_sec,
+            pool=connect_sec,
+        )
+        client = httpx.Client(timeout=timeout_cfg, trust_env=_http_trust_env())
         close_client = True
     try:
         response = client.post(url, headers=headers, json=payload)
