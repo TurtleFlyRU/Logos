@@ -58,6 +58,7 @@ _DEFAULT_PRINCIPLES_MIN_CONF = 0.7
 _DEFAULT_ACTIVE_MEMORY_CHARS = 12000
 _DEFAULT_ACTIVE_RECENT = 6
 _DEFAULT_ACTIVE_KEYWORD_TOP = 12
+_DEFAULT_TOTAL_CHAT_CHARS = 0  # 0/пусто — выключено (сохраняем поведение v1)
 
 
 def _env_flag(name: str, *, default: bool = True) -> bool:
@@ -95,6 +96,57 @@ def _active_memory_budget_chars() -> int:
         except ValueError:
             pass
     return _DEFAULT_ACTIVE_MEMORY_CHARS
+
+
+def _total_chat_char_budget() -> int:
+    """Максимальный размер всех сообщений для LLM в символах.
+
+    В фазе 8 бюджет вводится как простой и предсказуемый лимит:
+    сначала урезаем историю WM (удаляем самые старые сообщения),
+    затем в крайнем случае режем system (после сборки всех блоков).
+    """
+    raw = os.environ.get("EIDOS_CHAT_TOTAL_CHARS", "").strip()
+    if raw == "":
+        return _DEFAULT_TOTAL_CHAT_CHARS
+    try:
+        return max(0, min(1_000_000, int(raw)))
+    except ValueError:
+        return _DEFAULT_TOTAL_CHAT_CHARS
+
+
+def estimate_messages_chars(messages: list[dict[str, Any]]) -> int:
+    """Грубая оценка размера payload: суммарная длина content."""
+    total = 0
+    for m in messages:
+        c = m.get("content")
+        if isinstance(c, str):
+            total += len(c)
+    return total
+
+
+def _apply_total_char_budget(
+    messages: list[dict[str, Any]], *, total_budget: int
+) -> list[dict[str, Any]]:
+    if total_budget <= 0:
+        return messages
+
+    # 1) режем хвост истории (сохраняем system и последние реплики)
+    out = list(messages)
+    while len(out) > 1 and estimate_messages_chars(out) > total_budget:
+        # out[0] = system, out[1] = самый старый исторический
+        del out[1]
+
+    # 2) если всё ещё не влезает — урежем system (крайний случай)
+    over = estimate_messages_chars(out) - total_budget
+    if over > 0 and out and isinstance(out[0].get("content"), str):
+        sys_text = str(out[0]["content"])
+        keep = max(2000, len(sys_text) - over - 20)
+        if keep < len(sys_text):
+            out[0] = {
+                **out[0],
+                "content": sys_text[:keep] + "…",
+            }
+    return out
 
 
 def _episodic_scan_cap() -> int | None:
@@ -689,4 +741,6 @@ def build_chat_messages_for_llm(
     if extra:
         system_content = f"{system_content}\n\n{extra}"
 
-    return [{"role": "system", "content": system_content}, *hist]
+    messages = [{"role": "system", "content": system_content}, *hist]
+    total_budget = _total_chat_char_budget()
+    return _apply_total_char_budget(messages, total_budget=total_budget)
