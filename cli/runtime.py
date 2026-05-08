@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from cli.context import wm_events_to_chat_messages
-from cli.llm import LLMConfigError, chat_completions
+from cli.llm import LLMConfigError, chat_completions, format_llm_pending_banner
 
 if TYPE_CHECKING:
     from kernel.memory import Memory
@@ -31,6 +31,9 @@ def run_chat_interactive(
     if stub or not use_llm:
         print("[stub] Режим без вызова LLM (--stub).", flush=True)
 
+    prompt_interrupt_times: list[float] = []
+    _prompt_ki_window_sec = 1.6
+
     while True:
         try:
             line = input("> ").strip()
@@ -38,8 +41,17 @@ def run_chat_interactive(
             print()
             break
         except KeyboardInterrupt:
+            now = time.monotonic()
+            prompt_interrupt_times[:] = [
+                t for t in prompt_interrupt_times if now - t < _prompt_ki_window_sec
+            ]
+            prompt_interrupt_times.append(now)
+            if len(prompt_interrupt_times) >= 2:
+                print("\n[eidos] Выход по двойному Ctrl+C.", flush=True)
+                break
             print(
-                "\n[eidos] Прервано на приглашении. Выход: /exit или /quit.",
+                "\n[eidos] Прервано на приглашении. Выход: /exit или /quit "
+                f"(или второй Ctrl+C в течение {_prompt_ki_window_sec:.1f} с).",
                 flush=True,
             )
             continue
@@ -76,7 +88,7 @@ def run_chat_interactive(
             ]
             messages.extend(hist)
             try:
-                print("[eidos] Запрос к модели…", flush=True)
+                print(format_llm_pending_banner(), flush=True)
                 reply = chat_completions(messages)
                 if not (reply or "").strip():
                     print(
@@ -127,6 +139,7 @@ def run_ask(question: str, *, use_llm: bool = True) -> int:
     """Один запрос: LLM при наличии ключей, иначе заглушка. Возвращает код выхода."""
     if use_llm:
         try:
+            print(format_llm_pending_banner(), flush=True)
             text = chat_completions([{"role": "user", "content": question}])
             print(text)
             return 0

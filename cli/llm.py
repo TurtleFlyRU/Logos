@@ -12,13 +12,14 @@ from __future__ import annotations
 import os
 import threading
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 DEFAULT_MODEL = "deepseek-chat"
 
-_CONNECT_SEC = 45.0
+_CONNECT_SEC = 30.0
 _POOL_WRITE_SEC = 30.0
 
 
@@ -53,6 +54,25 @@ def _read_timeout_sec() -> float:
         return 120.0
 
 
+def format_llm_pending_banner() -> str:
+    """Одна строка до HTTP: куда идём и лимит чтения (без ключа и полного URL)."""
+    _, base, model = llm_settings()
+    parsed = urlparse(base)
+    host = (
+        parsed.netloc
+        or base.replace("https://", "").replace("http://", "").split("/")[0]
+    )
+    rs = _read_timeout_sec()
+    proxy_tip = (
+        " Прокси из окружения учитываются — при «тишине» попробуйте LLM_IGNORE_PROXY=1."
+        if _http_trust_env()
+        else ""
+    )
+    return (
+        f"[eidos] Запрос к модели… {host} · {model} · чтение до {rs:.0f} с.{proxy_tip}"
+    )
+
+
 def chat_completions(
     messages: list[dict[str, Any]],
     *,
@@ -74,7 +94,11 @@ def chat_completions(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    payload = {"model": model, "messages": messages}
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+    }
 
     if os.environ.get("LLM_DEBUG", "").strip():
         print(f"[eidos] LLM_DEBUG POST {url} model={model}", flush=True)
@@ -98,7 +122,10 @@ def chat_completions(
     stop_hb = threading.Event()
 
     def _heartbeat() -> None:
-        while not stop_hb.wait(15.0):
+        delays = [5.0] + [12.0] * 500
+        for wait_sec in delays:
+            if stop_hb.wait(wait_sec):
+                return
             print("[eidos] Всё ещё ждём ответ от API…", flush=True)
 
     if close_client:

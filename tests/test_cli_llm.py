@@ -20,6 +20,19 @@ def test_llm_settings_env(monkeypatch):
     assert model == "m1"
 
 
+def test_format_llm_pending_banner(monkeypatch):
+    monkeypatch.setenv("LLM_API_KEY", "k")
+    monkeypatch.setenv("LLM_BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setenv("LLM_MODEL", "deepseek-chat")
+    monkeypatch.delenv("LLM_IGNORE_PROXY", raising=False)
+    from cli.llm import format_llm_pending_banner
+
+    line = format_llm_pending_banner()
+    assert "api.deepseek.com" in line
+    assert "deepseek-chat" in line
+    assert "чтение до" in line
+
+
 def test_chat_completions_with_mock(monkeypatch):
     monkeypatch.setenv("LLM_API_KEY", "test-key")
     monkeypatch.setenv("LLM_BASE_URL", "https://api.test/v1")
@@ -29,6 +42,7 @@ def test_chat_completions_with_mock(monkeypatch):
         body = json.loads(request.content.decode())
         assert body["model"]
         assert body["messages"]
+        assert body.get("stream") is False
         return httpx.Response(
             200,
             json={"choices": [{"message": {"content": "ответ"}}]},
