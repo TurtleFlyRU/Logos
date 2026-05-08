@@ -78,11 +78,11 @@
 
 | Цель | Результат |
 |------|-----------|
-| Модуль `cli/context.py` | Явная функция вида `build_chat_context(memory, session, user_message) -> str` |
-| Источники v1 | Хвост WM, опционально куск `boot_context` или упрощённый список принципов, без полной сборки из всех подсистем сразу |
-| Отложено на фазу 8 | Грубый подсчёт токенов и суммаризация хвоста |
+| Модуль `cli/context.py` | `build_chat_context(...) -> str` (фрагмент для system) и **`build_chat_messages_for_llm(...)`** — полный список сообщений для API |
 
 **Критерий готовности:** промпт для модели строится одним пайплайном; добавление нового источника (например `recall_by_cues`) не ломает остальной CLI.
+
+**Реализация:** `CLI_CHAT_PERSONA` + слои из WM (**слоты внимания** по умолчанию), семантические **принципы** (`confidence ≥ 0.7`), опционально усечённый **`boot_context`** из WM (`EIDOS_CHAT_BOOT_SNIPPET=1`); **`EIDOS_CHAT_WM_MESSAGES`**, **`EIDOS_CHAT_ATTENTION`**, **`EIDOS_CHAT_PRINCIPLES`**; `run_chat_interactive` вызывает только **`build_chat_messages_for_llm`**; тесты в **`tests/test_cli_context.py`**.
 
 ---
 
@@ -209,8 +209,7 @@ flowchart LR
 
 ## Что делать следующим шагом (конкретно)
 
-1. Фазы **1–4** закрыты (включая multi-turn инструменты — `cli/tools.py`, `_cli_chat_llm_reply`).
-2. Дальше по графу: **Фаза 5** — явный пайплайн `build_chat_context` в `cli/context.py`.
-3. Затем **Фаза 6** — нативный boot без скрытого OpenCode и `import-opencode`.
+1. Фазы **1–5** закрыты (единый пайплайн контекста для `chat` — `build_chat_messages_for_llm`).
+2. Дальше: **Фаза 6** — нативный boot без скрытого OpenCode и `import-opencode`.
+3. Затем **Фаза 7–8** — ядро без скрытых зависимостей и бюджет контекста.
 
-Фазы 7–11 см. зависимости в диаграмме выше.

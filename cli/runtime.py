@@ -8,9 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from cli.context import wm_events_to_chat_messages
+from cli.context import build_chat_messages_for_llm
 from cli.llm import LLMConfigError, chat_completions, format_llm_pending_banner
-from cli.tools import tools_enabled
 
 if TYPE_CHECKING:
     from kernel.memory import Memory
@@ -86,8 +85,7 @@ def _cli_chat_llm_reply(
         break
     else:
         reply_text = (
-            "[eidos] Лимит раундов инструментов "
-            "(EIDOS_TOOL_ROUNDS или EIDOS_TOOLS=0)."
+            "[eidos] Лимит раундов инструментов (EIDOS_TOOL_ROUNDS или EIDOS_TOOLS=0)."
         )
 
     return reply_text if reply_text else None
@@ -195,26 +193,16 @@ def run_chat_interactive(
             }
         )
 
-        hist = wm_events_to_chat_messages(memory.working.data["events"], session_id)
-        if not tools_enabled():
-            hist = [h for h in hist if h.get("role") in ("user", "assistant")]
         reply: str | None = None
 
         if stub or not use_llm:
             reply = f"[stub] {line[:2000]}"
         else:
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "Ты Эйдос — со-исследователь. Отвечай по делу; язык ответа "
-                        "подстраивай под пользователя. Если нужно проверить цикл "
-                        "инструментов — доступны функции eidos_echo и read_workspace_file "
-                        "(только файлы внутри репозитория)."
-                    ),
-                },
-            ]
-            messages.extend(hist)
+            messages = build_chat_messages_for_llm(
+                memory,
+                session_id,
+                user_message=line,
+            )
             try:
                 print(format_llm_pending_banner(), flush=True)
                 reply = _cli_chat_llm_reply(memory, session_id, tags, messages)

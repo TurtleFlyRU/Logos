@@ -112,9 +112,14 @@ def test_chat_keyboard_interrupt_during_llm_no_traceback(monkeypatch, capsys):
         def add_event(self, ev):
             self.events.append(ev)
 
+    class FakeSemantic:
+        def get_principles(self, **_kwargs):
+            return []
+
     class FakeMemory:
         def __init__(self) -> None:
             self.working = FakeWM()
+            self.semantic = FakeSemantic()
 
     inputs = iter(["hi", "/exit"])
     monkeypatch.setattr("builtins.input", lambda _="": next(inputs))
