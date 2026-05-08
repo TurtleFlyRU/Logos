@@ -309,6 +309,12 @@ class EpisodicMemory:
         self._ensure_column("last_accessed_at", "REAL")
         self._ensure_column("archived_at", "REAL")
         self._ensure_column("forget_reason", "TEXT")
+        self._ensure_column("source", "TEXT")
+        self._ensure_column("source_id", "TEXT")
+        self._conn.commit()
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_episodes_source ON episodes(source)"
+        )
         self._conn.commit()
 
     def _ensure_column(self, name: str, definition: str) -> None:
@@ -328,9 +334,9 @@ class EpisodicMemory:
                    timestamp, session_id, salience, tags, summary, raw_text,
                    compressed, linked_episodes, context_keys, project, task,
                    outcome, tools, tools_used, valid_until, access_count, last_accessed_at,
-                   archived_at, forget_reason
+                   archived_at, forget_reason, source, source_id
                )
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 episode.get("timestamp", time.time()),
                 episode.get("session_id"),
@@ -351,6 +357,8 @@ class EpisodicMemory:
                 episode.get("last_accessed_at"),
                 episode.get("archived_at"),
                 episode.get("forget_reason"),
+                episode.get("source"),
+                episode.get("source_id"),
             ),
         )
         self._conn.commit()
@@ -412,6 +420,13 @@ class EpisodicMemory:
         )
         self._conn.commit()
         return cur.rowcount > 0
+
+    def _query(self, sql: str) -> list[Any]:
+        """Выполнить произвольный SQL SELECT, вернуть список первых колонок."""
+        try:
+            return [row[0] for row in self._conn.execute(sql).fetchall()]
+        except Exception:
+            return []
 
     def recall_by_cues(self, cues: list[str], limit: int = 5) -> list[dict[str, Any]]:
         normalized = set(_dedupe(cues))

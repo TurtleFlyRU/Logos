@@ -47,6 +47,17 @@ def boot_context(memory: Any) -> str:
     lines.append(f"☀ Загрузка: {time.strftime('%Y-%m-%d %H:%M', time.localtime())}")
     lines.append("")
 
+    # ── Шаг 0: синхронизация с OpenCode (всегда) ──────────────
+    try:
+        from kernel.opencode_adapter import OpenCodeAdapter
+        oc = OpenCodeAdapter()
+        synced = oc.sync_to_working_memory(memory, max_messages=100)
+        if synced:
+            lines.append(f"— Синхронизировано {synced} сообщений из OpenCode")
+            lines.append("")
+    except Exception:
+        pass
+
     # ── Шаг 0: последние слова перед сном (всегда) ────────────
     if SLEEP_LAST_WORDS_PATH.exists():
         try:

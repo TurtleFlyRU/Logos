@@ -260,6 +260,54 @@ class OpenCodeAdapter:
         return result
 
 
+    def import_all_to_episodic(self, memory: Any, max_sessions: int = 100) -> dict[str, int]:
+        """Импортирует все сообщения из OpenCode в эпизодическую память Эйдоса.
+
+        Инкрементально: проверяет по source='opencode' + message_id,
+        какие сообщения уже импортированы.
+
+        Returns:
+            Словарь: {session_slug: количество_импортированных_сообщений}
+        """
+        sessions = self.get_recent_sessions(limit=max_sessions)
+        imported: dict[str, int] = {}
+        total = 0
+
+        existing_ids = set(
+            memory.episodic._query(
+                "SELECT source_id FROM episodes WHERE source = 'opencode' AND source_id IS NOT NULL"
+            )
+        )
+
+        for session in sessions:
+            msgs = self.get_session_messages(session.id, limit=500)
+            count = 0
+            for m in msgs:
+                if not m.content.strip():
+                    continue
+                if m.id in existing_ids:
+                    continue
+
+                memory.episodic.store({
+                    "raw_text": m.content[:5000],
+                    "summary": f"[OpenCode {m.role}] {m.content[:200]}",
+                    "salience": 0.6,
+                    "tags": ["opencode", session.slug, m.role],
+                    "timestamp": m.time_created,
+                    "source": "opencode",
+                    "source_id": m.id,
+                })
+                existing_ids.add(m.id)
+                count += 1
+
+            if count:
+                imported[session.slug] = count
+                total += count
+
+        imported["_total"] = total
+        return imported
+
+
 if __name__ == "__main__":
     oc = OpenCodeAdapter()
     print("=== Последние сессии ===")
