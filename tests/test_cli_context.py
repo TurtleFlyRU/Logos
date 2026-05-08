@@ -233,3 +233,95 @@ def test_active_memory_disabled(monkeypatch):
     msgs = build_chat_messages_for_llm(Mem(), "sid", user_message="Зета")
     assert "(pipeline=" not in msgs[0]["content"]
     assert "Зета" not in msgs[0]["content"]
+
+
+def test_who_am_i_uses_wm_tail_for_episode_cues(monkeypatch):
+    monkeypatch.setenv("EIDOS_CHAT_PRINCIPLES", "0")
+    monkeypatch.setenv("EIDOS_CHAT_BOOT_SNIPPET", "0")
+    monkeypatch.setenv("EIDOS_CHAT_MEMORY_PIPELINE", "episodic_only")
+
+    sid = "sess-1"
+    rows: list[dict] = []
+    base_ts = 1_700_000_000
+    for i in range(12):
+        rows.append(
+            {
+                "id": i + 1,
+                "timestamp": float(base_ts + i),
+                "summary": "",
+                "raw_text": f"служебный шум сообщение {i}",
+                "salience": 0.5,
+            }
+        )
+    rows.append(
+        {
+            "id": 99,
+            "timestamp": 1_698_000_000,
+            "summary": "[user]",
+            "raw_text": "меня зовут Сергей, это для теста cues из WM",
+            "salience": 0.55,
+        }
+    )
+
+    class Sem:
+        def get_principles(self, **_kwargs):
+            return []
+
+    class WM:
+        data = {
+            "events": [
+                {
+                    "role": "user",
+                    "content": "меня зовут Сергей",
+                    "cli_session_id": sid,
+                },
+                {
+                    "role": "user",
+                    "content": "кто я",
+                    "cli_session_id": sid,
+                },
+            ],
+            "context": {},
+            "attention_slots": [],
+        }
+
+    class Mem:
+        working = WM()
+        semantic = Sem()
+        episodic = _Ep(rows)
+        external = _Ext()
+
+    msgs = build_chat_messages_for_llm(
+        Mem(),
+        sid,
+        user_message="кто я",
+    )
+    assert "Сергей" in msgs[0]["content"]
+    assert "Активное извлечение из памяти" in msgs[0]["content"]
+
+
+def test_user_identity_block_from_context(monkeypatch):
+    monkeypatch.setenv("EIDOS_CHAT_PRINCIPLES", "0")
+    monkeypatch.setenv("EIDOS_CHAT_BOOT_SNIPPET", "0")
+    monkeypatch.setenv("EIDOS_CHAT_ACTIVE_MEMORY", "0")
+
+    class Sem:
+        def get_principles(self, **_kwargs):
+            return []
+
+    class WM:
+        data = {
+            "events": [],
+            "context": {"user_display_name": "Инна"},
+            "attention_slots": [],
+        }
+
+    class Mem:
+        working = WM()
+        semantic = Sem()
+        episodic = _Ep([])
+        external = _Ext()
+
+    msgs = build_chat_messages_for_llm(Mem(), "sid", user_message="привет")
+    assert "Инна" in msgs[0]["content"]
+    assert "явно указано" in msgs[0]["content"]

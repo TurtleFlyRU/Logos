@@ -18,6 +18,9 @@
 - ``EIDOS_CHAT_ACTIVE_RECENT`` — сколько самых свежих эпизодов всегда включать (по умолчанию 6).
 - ``EIDOS_CHAT_ACTIVE_KEYWORD_TOP`` — дополнительно топ совпадений по словам реплики (по умолчанию 12).
 
+- ``EIDOS_CHAT_USER_IDENTITY`` — ``0``: не добавлять строку с именем из WM ``context['user_display_name']``
+  (по умолчанию вкл.; имя выставляется из фраз «меня зовут …» и т.п.).
+
 WM / boot / принципы (статичный блок в system)
 - ``EIDOS_CHAT_ATTENTION``, ``EIDOS_CHAT_BOOT_SNIPPET``, ``EIDOS_CHAT_BOOT_SNIPPET_CHARS``,
   ``EIDOS_CHAT_PRINCIPLES``.
@@ -171,6 +174,88 @@ def _cue_tokens_from_user(text: str | None) -> list[str]:
     return out
 
 
+_IDENTITY_QUESTION_RE = re.compile(
+    r"(^|\b)(кто\s+я|как\s+(меня\s+)?зовут|какое\s+у\s+меня\s+имя|мо[ёе]\s+имя|who\s+am\s+i|what\s*\'?s\s+my\s+name)(\b|$)",
+    re.I,
+)
+
+
+def _wm_tail_plain_text(memory: Any, cli_session_id: str, *, max_messages: int = 44) -> str:
+    """Текст последних реплик этой CLI-сессии для дополнения cues (имя в прошлых сообщениях)."""
+    events = memory.working.data.get("events") or []
+    parts: list[str] = []
+    count = 0
+    for ev in reversed(events):
+        if ev.get("cli_session_id") != cli_session_id:
+            continue
+        role = ev.get("role")
+        if role not in ("user", "assistant"):
+            continue
+        raw = ev.get("content") or ev.get("message") or ""
+        text = str(raw).strip()
+        if text:
+            parts.append(text)
+        count += 1
+        if count >= max_messages:
+            break
+    parts.reverse()
+    return "\n".join(parts)
+
+
+def _merged_retrieval_cues(user_message: str | None, wm_tail_text: str) -> list[str]:
+    """Токены из текущей реплики + из хвоста WM; иначе «кто я» не матчит эпизод с именем."""
+    primary = _cue_tokens_from_user(user_message)
+    secondary = _cue_tokens_from_user(wm_tail_text)
+    seen: set[str] = set()
+    out: list[str] = []
+    for tok in primary + secondary:
+        if tok in seen:
+            continue
+        seen.add(tok)
+        out.append(tok)
+        if len(out) >= 56:
+            break
+    return out
+
+
+def _episode_identity_hint_score(ep: dict[str, Any]) -> float:
+    blob = (str(ep.get("summary") or "") + "\n" + str(ep.get("raw_text") or "")).lower()
+    needles = (
+        "меня зовут",
+        "зовут ",
+        "мое имя",
+        "моё имя",
+        "имя пользователя",
+        "my name",
+        "[user]",
+        " пользователь ",
+        "пользователь:",
+    )
+    return float(sum(blob.count(n) * 3.0 for n in needles))
+
+
+def _score_identity_probe_episode(ep: dict[str, Any], *, now: float) -> float:
+    hint = _episode_identity_hint_score(ep)
+    ts = float(ep.get("timestamp") or 0)
+    age = max(0.0, now - ts)
+    recency = 1.0 / (1.0 + age / 86400.0)
+    salience = float(ep.get("salience") or 0)
+    return hint * 15.0 + recency * 4.0 + salience * 0.45
+
+
+def format_user_identity_block(memory: Any) -> str:
+    if not _env_flag("EIDOS_CHAT_USER_IDENTITY", default=True):
+        return ""
+    ctx = memory.working.data.get("context") or {}
+    raw = ctx.get("user_display_name")
+    if not raw or not isinstance(raw, str):
+        return ""
+    name = raw.strip()
+    if not name:
+        return ""
+    return f"— Пользователь (CLI, явно указано в диалоге): имя — {name}.\n"
+
+
 def _lex_score_blob(blob: str, cues: list[str]) -> float:
     if not cues:
         return 0.0
@@ -231,6 +316,7 @@ def format_active_memory_retrieval_block(
     memory: Any,
     user_message: str | None,
     *,
+    cli_session_id: str = "",
     max_chars: int | None = None,
 ) -> str:
     """На каждый ход: полный скан episodic (см. cap) + по пайплайну семантика/дневник/external."""
@@ -239,7 +325,8 @@ def format_active_memory_retrieval_block(
         return ""
 
     pm = _pipeline_modes()
-    cues = _cue_tokens_from_user(user_message)
+    wm_tail = _wm_tail_plain_text(memory, cli_session_id) if cli_session_id else ""
+    cues = _merged_retrieval_cues(user_message, wm_tail)
     now = time.time()
     recent_n = _active_recent_n()
     kw_top = _active_keyword_top()
@@ -281,9 +368,23 @@ def format_active_memory_retrieval_block(
                     if _score_episode_for_cues(ep, cues, now=now) > 0
                 ]
 
+            identity_eps: list[dict[str, Any]] = []
+            um_strip = (user_message or "").strip()
+            if kw_top > 0 and um_strip and _IDENTITY_QUESTION_RE.search(um_strip):
+                i_take = max(12, kw_top)
+                scored_i = sorted(
+                    pool,
+                    key=lambda ep: -_score_identity_probe_episode(ep, now=now),
+                )
+                identity_eps = [
+                    ep
+                    for ep in scored_i[:i_take]
+                    if _episode_identity_hint_score(ep) > 0
+                ]
+
             merged: list[dict[str, Any]] = []
             seen_ids: set[Any] = set()
-            for ep in [*recent, *keyword_eps]:
+            for ep in [*recent, *keyword_eps, *identity_eps]:
                 eid = ep.get("id")
                 key = eid if eid is not None else id(ep)
                 if key in seen_ids:
@@ -342,6 +443,10 @@ def format_active_memory_retrieval_block(
     # ─── Дневник ─────────────────────────────────────────────────────
     um = (user_message or "").strip()
     q = um if um else " "
+    if cli_session_id and um and _IDENTITY_QUESTION_RE.search(um):
+        tail_bit = wm_tail[-900:] if wm_tail else ""
+        q = (um + "\n" + tail_bit).strip()[:2500]
+
     if pm["journal_semantic"]:
         try:
             from kernel.journal import Journal
@@ -378,9 +483,12 @@ def format_active_memory_retrieval_block(
         return "".join(lines_out).rstrip() + "\n"
 
     # ─── Внешняя память (вектор по всему индексу) ────────────────────
-    if pm["external_semantic"] and um:
+    ext_q = um
+    if cli_session_id and um and _IDENTITY_QUESTION_RE.search(um):
+        ext_q = (um + "\n" + (wm_tail[-600:] if wm_tail else "")).strip()[:2000]
+    if pm["external_semantic"] and ext_q:
         try:
-            hits = memory.external.search(um, top_k=8, min_score=0.12)
+            hits = memory.external.search(ext_q, top_k=8, min_score=0.12)
         except Exception:
             hits = []
         if hits:
@@ -504,12 +612,12 @@ def build_chat_context(
 ) -> str:
     """Текстовые блоки для дополнения system-сообщения (не включает персону).
 
-    ``cli_session_id`` зарезервирован под фильтрацию episodic по сессии (позже).
+    ``cli_session_id`` — фильтр хвоста WM для cues при активном извлечении.
     ``user_message`` — триггер активного извлечения по всей памяти (см. pipeline).
     """
-    del cli_session_id
 
     parts: list[str] = []
+    parts.append(format_user_identity_block(memory))
     if _env_flag("EIDOS_CHAT_ATTENTION", default=True):
         parts.append(format_attention_slots_block(memory))
     if _env_flag("EIDOS_CHAT_ACTIVE_MEMORY", default=True):
@@ -517,6 +625,7 @@ def build_chat_context(
             format_active_memory_retrieval_block(
                 memory,
                 user_message,
+                cli_session_id=cli_session_id,
                 max_chars=_active_memory_budget_chars(),
             )
         )

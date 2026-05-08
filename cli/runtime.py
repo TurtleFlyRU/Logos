@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from cli.context import build_chat_messages_for_llm
+from cli.identity import try_capture_user_display_name
 from cli.llm import LLMConfigError, chat_completions, format_llm_pending_banner
 
 if TYPE_CHECKING:
@@ -182,6 +183,8 @@ def run_chat_interactive(
         low = line.lower()
         if low in ("/exit", "/quit"):
             break
+
+        try_capture_user_display_name(memory, line)
 
         memory.working.add_event(
             {
