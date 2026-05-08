@@ -50,7 +50,19 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         except Exception as exc:
             print(f"[eidos] Boot не выполнен: {exc}", flush=True)
 
-    run_chat_interactive(memory, sid, use_llm=not args.stub, stub=args.stub)
+    import os
+
+    show_metrics = bool(getattr(args, "metrics", False)) or (
+        os.environ.get("EIDOS_CHAT_METRICS", "").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
+    run_chat_interactive(
+        memory,
+        sid,
+        use_llm=not args.stub,
+        stub=args.stub,
+        show_metrics=show_metrics,
+    )
     return 0
 
 
@@ -133,6 +145,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-boot",
         action="store_true",
         help="Не запускать boot-ритуал при входе в chat (отладка/быстрый старт)",
+    )
+    p_chat.add_argument(
+        "--metrics",
+        action="store_true",
+        help="Печатать метрики сборки контекста (budget/payload/layers) перед вызовом LLM",
     )
     p_chat.set_defaults(func=_cmd_chat)
 

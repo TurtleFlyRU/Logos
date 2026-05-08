@@ -150,6 +150,7 @@ def run_chat_interactive(
     *,
     use_llm: bool = True,
     stub: bool = False,
+    show_metrics: bool = False,
 ) -> None:
     """Интерактивный цикл: WM + LLM, события помечены cli_session_id."""
     from cli import session as sess
@@ -212,6 +213,27 @@ def run_chat_interactive(
                 session_id,
                 user_message=line,
             )
+            if show_metrics:
+                from cli.context import chat_context_metrics
+                import os
+
+                raw = os.environ.get("EIDOS_CHAT_TOTAL_CHARS", "").strip()
+                total_budget = int(raw) if raw.isdigit() else 0
+                m = chat_context_metrics(messages, total_budget=total_budget)
+                layers = m["layers"]
+                layers_short = ",".join(
+                    k
+                    for k, v in layers.items()
+                    if v and k in ("identity", "attention", "active_memory", "boot_snippet", "principles", "wm_summary_block")
+                )
+                print(
+                    "[metrics] "
+                    f"budget={m['budget_total_chars']} chars; "
+                    f"payload={m['total_chars']} chars; "
+                    f"system={m['system_messages']}; hist={m['history_messages']} (tool={m['tool_messages']}); "
+                    f"layers={layers_short or '-'}",
+                    flush=True,
+                )
             try:
                 print(format_llm_pending_banner(), flush=True)
                 reply = _cli_chat_llm_reply(
@@ -258,6 +280,26 @@ def run_chat_interactive(
             except Exception as exc:
                 print(f"[eidos] Неожиданная ошибка: {exc}", flush=True)
                 reply = None
+
+        if show_metrics and (stub or not use_llm):
+            # В stub-режиме тоже полезно видеть «что бы пошло в LLM».
+            from cli.context import chat_context_metrics
+            import os
+
+            messages = build_chat_messages_for_llm(memory, session_id, user_message=line)
+            raw = os.environ.get("EIDOS_CHAT_TOTAL_CHARS", "").strip()
+            total_budget = int(raw) if raw.isdigit() else 0
+            m = chat_context_metrics(messages, total_budget=total_budget)
+            layers = m["layers"]
+            layers_short = ",".join(k for k, v in layers.items() if v)
+            print(
+                "[metrics] "
+                f"budget={m['budget_total_chars']} chars; "
+                f"payload={m['total_chars']} chars; "
+                f"system={m['system_messages']}; hist={m['history_messages']} (tool={m['tool_messages']}); "
+                f"layers={layers_short or '-'}",
+                flush=True,
+            )
 
         if reply:
             print(reply, flush=True)

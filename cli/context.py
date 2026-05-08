@@ -161,6 +161,52 @@ def estimate_messages_chars(messages: list[dict[str, Any]]) -> int:
     return total
 
 
+def chat_context_metrics(
+    messages: list[dict[str, Any]],
+    *,
+    total_budget: int,
+) -> dict[str, Any]:
+    """Метрики сборки контекста для вывода в CLI."""
+    total_chars = estimate_messages_chars(messages)
+    roles = [str(m.get("role") or "?") for m in messages]
+    system_count = sum(1 for r in roles if r == "system")
+    history_count = len(messages) - system_count
+    history_roles = [r for r in roles if r != "system"]
+    tool_count = sum(1 for r in history_roles if r == "tool")
+
+    sys_text = ""
+    if messages and isinstance(messages[0].get("content"), str):
+        sys_text = str(messages[0]["content"])
+    has_active_memory = "Активное извлечение из памяти" in sys_text
+    has_boot_snippet = "Фрагмент сохранённого boot" in sys_text
+    has_principles = "Принципы" in sys_text or "— Принципы" in sys_text
+    has_attention = "Слоты внимания" in sys_text
+    has_identity = "Пользователь (CLI" in sys_text
+
+    has_summary_block = any(
+        (m.get("role") == "system")
+        and isinstance(m.get("content"), str)
+        and "Сжатая история" in str(m.get("content"))
+        for m in messages[1:3]
+    )
+
+    return {
+        "budget_total_chars": int(total_budget),
+        "total_chars": int(total_chars),
+        "system_messages": int(system_count),
+        "history_messages": int(history_count),
+        "tool_messages": int(tool_count),
+        "layers": {
+            "identity": bool(has_identity),
+            "attention": bool(has_attention),
+            "active_memory": bool(has_active_memory),
+            "boot_snippet": bool(has_boot_snippet),
+            "principles": bool(has_principles),
+            "wm_summary_block": bool(has_summary_block),
+        },
+    }
+
+
 def _render_compact_history_summary(
     history: list[dict[str, Any]], *, max_chars: int
 ) -> str:
