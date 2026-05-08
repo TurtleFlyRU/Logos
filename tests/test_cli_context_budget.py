@@ -35,12 +35,15 @@ def _make_mem(events: list[dict]):
     return Mem()
 
 
-def test_total_char_budget_is_monotonic(monkeypatch):
+def test_total_char_budget_is_monotonic(monkeypatch, tmp_path):
     # отключаем тяжёлые блоки system ради стабильности
     monkeypatch.setenv("EIDOS_CHAT_PRINCIPLES", "0")
     monkeypatch.setenv("EIDOS_CHAT_BOOT_SNIPPET", "0")
     monkeypatch.setenv("EIDOS_CHAT_ACTIVE_MEMORY", "0")
     monkeypatch.setenv("EIDOS_CHAT_MEMORY_PIPELINE", "episodic_only")
+    persona = tmp_path / "AGENTS.md"
+    persona.write_text("Ты Эйдос — со-исследователь.\n", encoding="utf-8")
+    monkeypatch.setenv("EIDOS_CHAT_PERSONA_PATH", str(persona))
 
     sid = "s"
     events = []
@@ -64,11 +67,14 @@ def test_total_char_budget_is_monotonic(monkeypatch):
     assert big >= small
 
 
-def test_old_history_is_summarized_into_system_block(monkeypatch):
+def test_old_history_is_summarized_into_system_block(monkeypatch, tmp_path):
     monkeypatch.setenv("EIDOS_CHAT_PRINCIPLES", "0")
     monkeypatch.setenv("EIDOS_CHAT_BOOT_SNIPPET", "0")
     monkeypatch.setenv("EIDOS_CHAT_ACTIVE_MEMORY", "0")
     monkeypatch.setenv("EIDOS_CHAT_MEMORY_PIPELINE", "episodic_only")
+    persona = tmp_path / "AGENTS.md"
+    persona.write_text("Ты Эйдос — со-исследователь.\n", encoding="utf-8")
+    monkeypatch.setenv("EIDOS_CHAT_PERSONA_PATH", str(persona))
 
     # включаем фазу 8.2: summary старой истории
     monkeypatch.setenv("EIDOS_CHAT_SUMMARIZE_OLD_WM", "1")
@@ -92,13 +98,16 @@ def test_old_history_is_summarized_into_system_block(monkeypatch):
     assert estimate_messages_chars(msgs) <= 4000
 
 
-def test_layer_budget_drops_low_priority_blocks_first(monkeypatch):
+def test_layer_budget_drops_low_priority_blocks_first(monkeypatch, tmp_path):
     # Настраиваем так, чтобы extra-блоки влезали не все: active_memory должен первым пострадать.
     monkeypatch.setenv("EIDOS_CHAT_MEMORY_PIPELINE", "episodic_only")
     monkeypatch.setenv("EIDOS_CHAT_PRINCIPLES", "0")
     monkeypatch.setenv("EIDOS_CHAT_BOOT_SNIPPET", "0")
     monkeypatch.setenv("EIDOS_CHAT_ATTENTION", "0")
     monkeypatch.setenv("EIDOS_CHAT_USER_IDENTITY", "0")
+    persona = tmp_path / "AGENTS.md"
+    persona.write_text("Ты Эйдос — со-исследователь.\n", encoding="utf-8")
+    monkeypatch.setenv("EIDOS_CHAT_PERSONA_PATH", str(persona))
 
     monkeypatch.setenv("EIDOS_CHAT_LAYER_BUDGET", "1")
     monkeypatch.setenv("EIDOS_CHAT_SUMMARIZE_OLD_WM", "0")
@@ -123,7 +132,7 @@ def test_layer_budget_drops_low_priority_blocks_first(monkeypatch):
     assert estimate_messages_chars(msgs) <= 2200
 
 
-def test_metrics_layers_not_triggered_by_persona(monkeypatch):
+def test_metrics_layers_not_triggered_by_persona(monkeypatch, tmp_path):
     # persona содержит слова «Пользователь (CLI...)» и др., но слои должны считаться
     # включёнными только если реально добавлены блоки с заголовком «— ...».
     monkeypatch.setenv("EIDOS_CHAT_PRINCIPLES", "0")
@@ -132,6 +141,9 @@ def test_metrics_layers_not_triggered_by_persona(monkeypatch):
     monkeypatch.setenv("EIDOS_CHAT_ATTENTION", "0")
     monkeypatch.setenv("EIDOS_CHAT_USER_IDENTITY", "0")
     monkeypatch.setenv("EIDOS_CHAT_MEMORY_PIPELINE", "episodic_only")
+    persona = tmp_path / "AGENTS.md"
+    persona.write_text("Ты Эйдос — со-исследователь.\n", encoding="utf-8")
+    monkeypatch.setenv("EIDOS_CHAT_PERSONA_PATH", str(persona))
 
     sid = "s"
     mem = _make_mem([])

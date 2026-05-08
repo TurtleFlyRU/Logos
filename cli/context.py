@@ -38,18 +38,36 @@ from __future__ import annotations
 import os
 import re
 import time
+from pathlib import Path
 from typing import Any
 
-CLI_CHAT_PERSONA = (
-    "Ты Эйдос — со-исследователь; отвечай от первого лица («я»), не называй себя «ты Эйдос». "
-    "Факты о пользователе и прошлые события смотри В ЭТОМ ЖЕ system-сообщении: блок "
-    "«Активное извлечение из памяти», строка «Пользователь (CLI…)», слоты внимания, хвост чата — "
-    "это и есть память Эйдоса (SQLite / WM), а не файлы репозитория на диске. "
-    "Не утвердай что «память пуста», если в блоке есть эпизоды или указано имя; если блок явно "
-    "говорит что записей нет и в диалоге имени нет — так и скажи кратко. "
-    "На короткие вопросы вроде «кто я», «как меня зовут» инструменты не вызывай — отвечай по этому тексту и истории чата. "
-    "Иначе при необходимости доступны eidos_echo и read_workspace_file (только файлы репозитория)."
+_DEFAULT_PERSONA_FALLBACK = (
+    "Я Эйдос — исследователь; отвечай от первого лица («я»). "
+    "Факты о пользователе и прошлые события смотри в этом же system: "
+    "слоты внимания, активное извлечение из памяти, хвост чата. "
+    "На короткие вопросы «кто я» отвечай по памяти, без инструментов."
 )
+
+
+def load_project_agents_md() -> str:
+    """Базовый system-текст для CLI: читаем корневой AGENTS.md.
+
+    Это сознательно: persona живёт в проекте, а не в захардкоженной строке.
+    """
+    override = os.environ.get("EIDOS_CHAT_PERSONA_PATH", "").strip()
+    if override:
+        try:
+            text = Path(override).expanduser().resolve().read_text(encoding="utf-8").strip()
+            return text if text else _DEFAULT_PERSONA_FALLBACK
+        except OSError:
+            return _DEFAULT_PERSONA_FALLBACK
+    repo_root = Path(__file__).resolve().parents[1]
+    p = repo_root / "AGENTS.md"
+    try:
+        text = p.read_text(encoding="utf-8").strip()
+        return text if text else _DEFAULT_PERSONA_FALLBACK
+    except OSError:
+        return _DEFAULT_PERSONA_FALLBACK
 
 _DEFAULT_WM_MESSAGES = 40
 _DEFAULT_BOOT_SNIPPET_CHARS = 12000
@@ -936,7 +954,7 @@ def build_chat_messages_for_llm(
     # чтобы минимизировать «грубую резку» system в _apply_total_char_budget.
     if _layer_budget_enabled(total_budget=total_budget):
         # резервируем место под историю (приблизительно) и саму persona
-        persona = CLI_CHAT_PERSONA.strip()
+        persona = load_project_agents_md().strip()
         hist_chars = estimate_messages_chars(hist)
         # system extra получает всё, что осталось, но не меньше 0
         extra_budget = max(0, total_budget - len(persona) - hist_chars - 50)
@@ -949,7 +967,7 @@ def build_chat_messages_for_llm(
     else:
         extra = build_chat_context(memory, cli_session_id, user_message=user_message)
 
-    system_content = CLI_CHAT_PERSONA.strip()
+    system_content = load_project_agents_md().strip()
     if extra:
         system_content = f"{system_content}\n\n{extra}"
 
