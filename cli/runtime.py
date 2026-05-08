@@ -4,15 +4,93 @@ from __future__ import annotations
 
 import sys
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from cli.context import wm_events_to_chat_messages
 from cli.llm import LLMConfigError, chat_completions, format_llm_pending_banner
+from cli.tools import tools_enabled
 
 if TYPE_CHECKING:
     from kernel.memory import Memory
+
+
+def _cli_chat_llm_reply(
+    memory: Any,
+    session_id: str,
+    tags: list[str],
+    messages: list[dict[str, Any]],
+) -> str | None:
+    """Один пользовательский ход: опционально цикл tool_calls и финальный текст."""
+    from cli.llm import chat_completion_assistant_message
+    from cli.tools import (
+        assistant_message_for_api,
+        builtin_tool_specs,
+        execute_tool,
+        max_tool_rounds,
+        progress_echo_enabled,
+        tools_enabled,
+    )
+
+    if not tools_enabled():
+        text = chat_completions(messages)
+        return text if (text or "").strip() else None
+
+    from kernel.instrumental import InstrumentalRegistry
+
+    instrumental = InstrumentalRegistry()
+    tool_specs = builtin_tool_specs()
+    max_r = max_tool_rounds()
+    rounds = 0
+    reply_text = ""
+    while rounds < max_r:
+        rounds += 1
+        amsg = chat_completion_assistant_message(messages, tools=tool_specs)
+        tcalls = amsg.get("tool_calls")
+        if tcalls:
+            memory.working.add_event(
+                {
+                    "role": "assistant",
+                    "content": amsg.get("content"),
+                    "tool_calls": tcalls,
+                    "cli_session_id": session_id,
+                    "tags": tags,
+                    "event_type": "cli_chat",
+                }
+            )
+            messages.append(assistant_message_for_api(amsg))
+            for tc in tcalls:
+                fn = tc.get("function") or {}
+                name = str(fn.get("name") or "")
+                args = str(fn.get("arguments") or "{}")
+                tcid = str(tc.get("id") or "")
+                if progress_echo_enabled():
+                    print(f"[eidos] tool {name}", flush=True)
+                result = execute_tool(name, args, registry=instrumental)
+                memory.working.add_event(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tcid,
+                        "content": result,
+                        "cli_session_id": session_id,
+                        "tags": tags,
+                        "event_type": "cli_chat",
+                    }
+                )
+                messages.append(
+                    {"role": "tool", "tool_call_id": tcid, "content": result}
+                )
+            continue
+        reply_text = (amsg.get("content") or "").strip()
+        break
+    else:
+        reply_text = (
+            "[eidos] Лимит раундов инструментов "
+            "(EIDOS_TOOL_ROUNDS или EIDOS_TOOLS=0)."
+        )
+
+    return reply_text if reply_text else None
 
 
 def _friendly_http_status_line(code: int) -> str | None:
@@ -118,24 +196,28 @@ def run_chat_interactive(
         )
 
         hist = wm_events_to_chat_messages(memory.working.data["events"], session_id)
+        if not tools_enabled():
+            hist = [h for h in hist if h.get("role") in ("user", "assistant")]
         reply: str | None = None
 
         if stub or not use_llm:
             reply = f"[stub] {line[:2000]}"
         else:
-            messages: list[dict[str, str]] = [
+            messages = [
                 {
                     "role": "system",
                     "content": (
                         "Ты Эйдос — со-исследователь. Отвечай по делу; язык ответа "
-                        "подстраивай под пользователя."
+                        "подстраивай под пользователя. Если нужно проверить цикл "
+                        "инструментов — доступны функции eidos_echo и read_workspace_file "
+                        "(только файлы внутри репозитория)."
                     ),
                 },
             ]
             messages.extend(hist)
             try:
                 print(format_llm_pending_banner(), flush=True)
-                reply = chat_completions(messages)
+                reply = _cli_chat_llm_reply(memory, session_id, tags, messages)
                 if not (reply or "").strip():
                     print(
                         "[eidos] Модель вернула пустой ответ. Проверьте LLM_MODEL "

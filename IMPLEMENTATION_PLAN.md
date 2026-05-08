@@ -70,6 +70,8 @@
 
 **Критерий готовности:** сценарий с двумя раундами tool_calls проходит в тесте с зафиксированными stub-ответами модели.
 
+**Реализация:** `cli/tools.py` — `builtin_tool_specs` (`eidos_echo`, `read_workspace_file` только под корнем репо), `execute_tool` и учёт вызовов в `InstrumentalRegistry`; `cli/llm.py::chat_completion_assistant_message`; цикл в `cli/runtime.py::_cli_chat_llm_reply`; переменные **`EIDOS_TOOLS`**, **`EIDOS_TOOL_ROUNDS`**; события assistant/tool в WM; `cli/context.py::wm_events_to_chat_messages` отдаёт `tool` и assistant с `tool_calls`; тесты **`tests/test_cli_tools.py`**.
+
 ---
 
 ## Фаза 5 — Пайплайн контекста «chat» v1
@@ -207,8 +209,8 @@ flowchart LR
 
 ## Что делать следующим шагом (конкретно)
 
-1. Реализовать **Фазу 1** (структура `cli/`, `eidos.py`, smoke test).
-2. Затем **Фазу 2** (реальный LLM для `ask`).
-3. Затем **Фазу 3** (WM + session JSON).
+1. Фазы **1–4** закрыты (включая multi-turn инструменты — `cli/tools.py`, `_cli_chat_llm_reply`).
+2. Дальше по графу: **Фаза 5** — явный пайплайн `build_chat_context` в `cli/context.py`.
+3. Затем **Фаза 6** — нативный boot без скрытого OpenCode и `import-opencode`.
 
-После этого продукт уже «полезен ежедневно»; фазы 4–6 убирают главные архитектурные долги относительно OpenCode и инструментов.
+Фазы 7–11 см. зависимости в диаграмме выше.

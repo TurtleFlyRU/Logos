@@ -6,6 +6,8 @@
 - LLM_IGNORE_PROXY — ``1``/``true``: не подхватывать HTTP(S)_PROXY (trust_env=False).
 - LLM_DEBUG — если задан: перед запросом печатается URL и модель (без ключа).
 - LLM_PROGRESS — ``0``/``false``: не печатать строки HTTP → / ← (по умолчанию включено).
+
+Функции ``chat_completion_assistant_message`` / цикл инструментов — см. ``cli.tools``.
 """
 
 from __future__ import annotations
@@ -106,35 +108,27 @@ def _phase_hooks(phase: dict[str, str]) -> dict[str, list]:
     return {"request": [on_request], "response": [on_response]}
 
 
-def chat_completions(
-    messages: list[dict[str, Any]],
+def _chat_completion_raw_assistant_message(
     *,
-    timeout: float | None = None,
-    client: httpx.Client | None = None,
-) -> str:
-    """POST /chat/completions; возвращает текст из первого choice."""
-    api_key, base, model = llm_settings()
-    if not api_key:
-        raise LLMConfigError(
-            "Задайте LLM_API_KEY или DEEPSEEK_API_KEY в окружении "
-            "(опционально LLM_BASE_URL, LLM_MODEL)."
-        )
-
-    read_sec = timeout if timeout is not None else _read_timeout_sec()
-
-    url = f"{base}/chat/completions"
+    payload: dict[str, Any],
+    read_sec: float,
+    base: str,
+    api_key: str,
+    timeout: float | None,
+    client: httpx.Client | None,
+) -> dict[str, Any]:
+    """Общий POST /chat/completions; возвращает сырой объект ``message`` первого choice."""
+    url = f"{base.rstrip('/')}/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "stream": False,
-    }
 
     if os.environ.get("LLM_DEBUG", "").strip():
-        print(f"[eidos] LLM_DEBUG POST {url} model={model}", flush=True)
+        print(
+            f"[eidos] LLM_DEBUG POST {url} model={payload.get('model')}",
+            flush=True,
+        )
 
     stop_hb = threading.Event()
     close_client = False
@@ -176,12 +170,95 @@ def chat_completions(
             detail = repr(data)[:500]
             raise LLMConfigError(f"Пустой choices в ответе API: {detail}")
         msg = choices[0].get("message") or {}
-        content = msg.get("content")
-        if content is None:
+        if not isinstance(msg, dict):
             detail = repr(data)[:500]
-            raise LLMConfigError(f"Нет message.content в ответе: {detail}")
-        return str(content).strip()
+            raise LLMConfigError(f"Некорректный message в ответе: {detail}")
+        return msg
     finally:
         stop_hb.set()
         if close_client:
             client.close()
+
+
+def chat_completion_assistant_message(
+    messages: list[dict[str, Any]],
+    *,
+    tools: list[dict[str, Any]] | None = None,
+    tool_choice: Any | None = "auto",
+    timeout: float | None = None,
+    client: httpx.Client | None = None,
+) -> dict[str, Any]:
+    """POST /chat/completions; возвращает ``message`` первого choice (текст и/или ``tool_calls``)."""
+    api_key, base, model = llm_settings()
+    if not api_key:
+        raise LLMConfigError(
+            "Задайте LLM_API_KEY или DEEPSEEK_API_KEY в окружении "
+            "(опционально LLM_BASE_URL, LLM_MODEL)."
+        )
+
+    read_sec = timeout if timeout is not None else _read_timeout_sec()
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+    }
+    if tools is not None:
+        payload["tools"] = tools
+        if tool_choice is not None:
+            payload["tool_choice"] = tool_choice
+
+    msg = _chat_completion_raw_assistant_message(
+        payload=payload,
+        read_sec=read_sec,
+        base=base,
+        api_key=api_key,
+        timeout=timeout,
+        client=client,
+    )
+    if msg.get("tool_calls"):
+        return msg
+    if msg.get("content") is None:
+        raise LLMConfigError(
+            "В ответе API нет ни content, ни tool_calls — проверьте модель и параметры."
+        )
+    return msg
+
+
+def chat_completions(
+    messages: list[dict[str, Any]],
+    *,
+    timeout: float | None = None,
+    client: httpx.Client | None = None,
+) -> str:
+    """POST /chat/completions; возвращает текст из первого choice."""
+    api_key, base, model = llm_settings()
+    if not api_key:
+        raise LLMConfigError(
+            "Задайте LLM_API_KEY или DEEPSEEK_API_KEY в окружении "
+            "(опционально LLM_BASE_URL, LLM_MODEL)."
+        )
+
+    read_sec = timeout if timeout is not None else _read_timeout_sec()
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+    }
+
+    msg = _chat_completion_raw_assistant_message(
+        payload=payload,
+        read_sec=read_sec,
+        base=base,
+        api_key=api_key,
+        timeout=timeout,
+        client=client,
+    )
+    if msg.get("tool_calls"):
+        raise LLMConfigError(
+            "Модель вернула tool_calls — включите режим инструментов в chat (EIDOS_TOOLS=1) "
+            "или используйте chat_completion_assistant_message."
+        )
+    content = msg.get("content")
+    if content is None:
+        raise LLMConfigError("Нет message.content в ответе API.")
+    return str(content).strip()

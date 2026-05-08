@@ -122,7 +122,7 @@ def test_chat_keyboard_interrupt_during_llm_no_traceback(monkeypatch, capsys):
     def boom(*_a, **_k):
         raise KeyboardInterrupt()
 
-    monkeypatch.setattr("cli.runtime.chat_completions", boom)
+    monkeypatch.setattr("cli.runtime._cli_chat_llm_reply", boom)
     monkeypatch.setattr("cli.session.touch_session", lambda *a, **k: None)
 
     from cli.runtime import run_chat_interactive
