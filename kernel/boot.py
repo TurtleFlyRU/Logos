@@ -187,6 +187,15 @@ def boot_context(memory: Any) -> str:
     except Exception:
         meta_lines.append("— Самочувствие: не удалось проверить\n")
 
+    try:
+        from kernel.instrumental import InstrumentalRegistry
+        ir = InstrumentalRegistry()
+        boot_summary = ir.get_boot_summary(limit=3)
+        if boot_summary:
+            meta_lines.append(boot_summary)
+    except Exception:
+        pass
+
     # AgentPulse
     try:
         from kernel.agent_pulse import AgentPulse

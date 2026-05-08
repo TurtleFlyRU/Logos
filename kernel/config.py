@@ -20,6 +20,9 @@ JOURNAL_VECTOR_INDEX_PATH = DATA_ROOT / "journal_vector_index.pkl"
 EXTERNAL_DB_PATH = DATA_ROOT / "external" / "documents.db"
 EXTERNAL_VECTOR_INDEX_PATH = DATA_ROOT / "external" / "vector_index.pkl"
 
+# Instrumental memory
+INSTRUMENTAL_DB_PATH = DATA_ROOT / "instrumental" / "tools.db"
+
 # Ethics / Moral
 MORAL_DB_PATH = DATA_ROOT / "episodic" / "moral.db"
 
