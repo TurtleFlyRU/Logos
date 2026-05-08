@@ -342,3 +342,33 @@ def test_user_identity_block_from_context(monkeypatch):
     msgs = build_chat_messages_for_llm(Mem(), "sid", user_message="привет")
     assert "Инна" in msgs[0]["content"]
     assert "явно указано" in msgs[0]["content"]
+
+
+def test_user_identity_block_fallback_from_agents_md(monkeypatch, tmp_path):
+    monkeypatch.setenv("EIDOS_CHAT_PRINCIPLES", "0")
+    monkeypatch.setenv("EIDOS_CHAT_BOOT_SNIPPET", "0")
+    monkeypatch.setenv("EIDOS_CHAT_ACTIVE_MEMORY", "0")
+
+    persona = tmp_path / "AGENTS.md"
+    persona.write_text(
+        "Работаю в паре с человеком (TurtleFlyRU, Александр).\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EIDOS_CHAT_PERSONA_PATH", str(persona))
+
+    class Sem:
+        def get_principles(self, **_kwargs):
+            return []
+
+    class WM:
+        data = {"events": [], "context": {}, "attention_slots": []}
+
+    class Mem:
+        working = WM()
+        semantic = Sem()
+        episodic = _Ep([])
+        external = _Ext()
+
+    msgs = build_chat_messages_for_llm(Mem(), "sid", user_message="привет")
+    assert "Александр" in msgs[0]["content"]
+    assert "AGENTS.md" in msgs[0]["content"]

@@ -532,12 +532,21 @@ def format_user_identity_block(memory: Any) -> str:
         return ""
     ctx = memory.working.data.get("context") or {}
     raw = ctx.get("user_display_name")
-    if not raw or not isinstance(raw, str):
-        return ""
-    name = raw.strip()
-    if not name:
-        return ""
-    return f"— Пользователь (CLI, явно указано в диалоге): имя — {name}.\n"
+    if raw and isinstance(raw, str):
+        name = raw.strip()
+        if name:
+            return f"— Пользователь (CLI, явно указано в диалоге): имя — {name}.\n"
+
+    # Fallback: если имя не поймано из реплики, попробуем извлечь его из AGENTS.md
+    # (там обычно указано «Работаю в паре ... (TurtleFlyRU, Александр)»).
+    persona = load_project_agents_md()
+    m = re.search(r"\((?:[^,)]{2,64}),\s*([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\\-]{1,48})\)", persona)
+    if m:
+        name = str(m.group(1)).strip()
+        if name:
+            return f"— Пользователь (из AGENTS.md): имя — {name}.\n"
+
+    return ""
 
 
 def is_identity_meta_query(line: str, *, max_len: int = 160) -> bool:
