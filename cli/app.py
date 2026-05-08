@@ -10,6 +10,7 @@ def _cmd_chat(args: argparse.Namespace) -> int:
     from kernel.memory import Memory
 
     from cli import session as sess
+    from cli.identity import seed_user_display_name_from_agents_md
     from cli.runtime import run_chat_interactive
 
     if getattr(args, "session", None) and args.new:
@@ -41,6 +42,9 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         memory.working.set_context("cli_session_id", sid)
         memory.working.set_context("cli_transport", "eidos")
         sess.write_latest(sid)
+
+    # OpenCode-подобное поведение: имя пользователя доступно сразу, если оно зафиксировано в AGENTS.md
+    seed_user_display_name_from_agents_md(memory)
 
     if not getattr(args, "no_boot", False):
         try:
