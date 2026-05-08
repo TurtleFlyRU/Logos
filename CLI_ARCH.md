@@ -245,9 +245,9 @@ kernel/dashboard.py       ← health + instrumental + DB reads
 | **UI** | `streamlit` | `dashboard/app.py` |
 | **Тесты** | `pytest` | `tests/` |
 
-Файл `body/requirements.txt` сейчас почти пустой (комментарий про опциональность); реальный минимум для полного функционала эмбеддингов нужно **зафиксировать версиями** при упаковке CLI (отдельный `requirements-cli.txt` или extras в будущем `pyproject.toml`).
+Файл `body/requirements.txt` указывает на каталог **`requirements/`**: профили `kernel-min`, `kernel-ml`, `cli`, `dev`, `full-local` и т.д. (см. `requirements/README.md`).
 
-### Эксперименты и динамический `sys.path`
+### Внешние зависимости (факт по импортам)
 
 `Memory.assess_complexity` и верификация подмешивают в `sys.path` каталоги `experiments/002-*` и `003-*`. Это **скрытая связность**: будущий CLI либо переносит эти модули в `kernel/`, либо регистрирует их как явные плагины с интерфейсом.
 

@@ -1,0 +1,6 @@
+# Полный локальный стек: разработка + ML + браузер + дашборд + CLI.
+-r dev.txt
+-r kernel-ml.txt
+-r kernel-browser.txt
+-r kernel-dashboard.txt
+-r cli.txt

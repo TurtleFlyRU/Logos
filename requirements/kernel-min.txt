@@ -1,0 +1,4 @@
+# Ядро kernel/* без numpy/torch/transformers:
+# memory (SQLite), boot, ethics, goals, planner, instrumental, opencode_adapter и т.д.
+#
+# Установка файла не тянет пакетов — только явная зависимость от Python 3.10+.

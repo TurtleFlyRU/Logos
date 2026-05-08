@@ -1,0 +1,4 @@
+# Локальный дашборд: dashboard/app.py
+-r kernel-min.txt
+
+streamlit>=1.28.0

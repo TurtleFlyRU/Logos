@@ -1,2 +1,6 @@
-# Ядро Эйдоса — минимальные зависимости
-# Векторные эмбеддинги опционально: sentence-transformers, numpy
+# Зависимости перенесены в каталог `requirements/` — см. `requirements/README.md`.
+#
+# Примеры:
+#   pip install -r requirements/kernel-ml.txt
+#   pip install -r requirements/dev.txt -r requirements/kernel-ml.txt
+#   pip install -r requirements/full-local.txt

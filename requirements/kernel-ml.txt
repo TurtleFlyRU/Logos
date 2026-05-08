@@ -1,0 +1,9 @@
+# Векторные эмбеддинги: kernel/external.py, kernel/journal.py (rubert-tiny2 из репозитория).
+-r kernel-min.txt
+
+numpy>=1.26.0
+torch>=2.2.0
+transformers>=4.38.0
+
+# Опционально для скриптов экспериментов и загрузки моделей с Hugging Face.
+huggingface_hub>=0.21.0

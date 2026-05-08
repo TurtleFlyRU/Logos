@@ -1,0 +1,4 @@
+# Автоматизация браузера: kernel/browser.py
+-r kernel-min.txt
+
+playwright>=1.40.0
