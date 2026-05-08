@@ -3,7 +3,8 @@
 Переменные окружения (все опциональны):
 - EIDOS_CHAT_WM_MESSAGES — сколько последних WM-сообщений отдавать в API (4–80, по умолчанию 40).
 - EIDOS_CHAT_ATTENTION — ``0``: не добавлять слоты внимания в system (по умолчанию вкл.).
-- EIDOS_CHAT_BOOT_SNIPPET — ``1``: добавить усечённый фрагмент сохранённого ``boot_context`` из WM.
+- EIDOS_CHAT_BOOT_SNIPPET — ``0``: не добавлять фрагмент ``boot_context`` в system (по умолчанию **вкл.**).
+- EIDOS_CHAT_BOOT_SNIPPET_CHARS — максимум символов фрагмента boot в system (по умолчанию 12000).
 - EIDOS_CHAT_PRINCIPLES — ``0``: не добавлять блок семантических принципов (по умолчанию вкл.).
 """
 
@@ -19,7 +20,7 @@ CLI_CHAT_PERSONA = (
 )
 
 _DEFAULT_WM_MESSAGES = 40
-_DEFAULT_BOOT_SNIPPET_CHARS = 4000
+_DEFAULT_BOOT_SNIPPET_CHARS = 12000
 _DEFAULT_PRINCIPLES_LIMIT = 5
 _DEFAULT_PRINCIPLES_MIN_CONF = 0.7
 
@@ -39,6 +40,16 @@ def _wm_message_budget() -> int:
         return max(4, min(80, int(raw)))
     except ValueError:
         return _DEFAULT_WM_MESSAGES
+
+
+def _boot_snippet_char_cap() -> int:
+    raw = os.environ.get("EIDOS_CHAT_BOOT_SNIPPET_CHARS", "").strip()
+    if raw:
+        try:
+            return max(800, min(120_000, int(raw)))
+        except ValueError:
+            pass
+    return _DEFAULT_BOOT_SNIPPET_CHARS
 
 
 def wm_events_to_chat_messages(
@@ -158,8 +169,10 @@ def build_chat_context(
     parts: list[str] = []
     if _env_flag("EIDOS_CHAT_ATTENTION", default=True):
         parts.append(format_attention_slots_block(memory))
-    if _env_flag("EIDOS_CHAT_BOOT_SNIPPET", default=False):
-        parts.append(format_boot_context_snippet(memory))
+    if _env_flag("EIDOS_CHAT_BOOT_SNIPPET", default=True):
+        parts.append(
+            format_boot_context_snippet(memory, max_chars=_boot_snippet_char_cap())
+        )
     if _env_flag("EIDOS_CHAT_PRINCIPLES", default=True):
         parts.append(
             format_semantic_principles_block(

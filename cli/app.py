@@ -42,6 +42,14 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         memory.working.set_context("cli_transport", "eidos")
         sess.write_latest(sid)
 
+    if not getattr(args, "no_boot", False):
+        try:
+            from kernel.boot import run_cli_chat_boot
+
+            run_cli_chat_boot(memory)
+        except Exception as exc:
+            print(f"[eidos] Boot не выполнен: {exc}", flush=True)
+
     run_chat_interactive(memory, sid, use_llm=not args.stub, stub=args.stub)
     return 0
 
@@ -109,6 +117,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--stub",
         action="store_true",
         help="Не вызывать LLM (локальный echo)",
+    )
+    p_chat.add_argument(
+        "--no-boot",
+        action="store_true",
+        help="Не запускать boot-ритуал при входе в chat (отладка/быстрый старт)",
     )
     p_chat.set_defaults(func=_cmd_chat)
 

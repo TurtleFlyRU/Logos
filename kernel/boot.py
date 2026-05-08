@@ -1,22 +1,33 @@
 """Boot-протокол Эйдоса — ритуал утреннего пробуждения.
 
-Формирует контекст с бюджетом ~25% от контекстного окна (≈31K токенов).
-Приоритет: последние события → эпизоды по recency → семантические принципы.
+Формирует контекст с лимитом символов (грубо токены × 4). По умолчанию ~25K токенов.
+Пайплайн вызывает отделы памяти через их API (WM-слоты, episodic.query/recall_by_cues,
+semantic.get_principles, цели, instrumental, pulse и др.). Эпизоды упорядочиваются по
+важности (salience, давность, теги, объём), затем укладываются в бюджет.
+
+CLI: ``boot_context(memory, sync_opencode=False)`` — без автоматической синхронизации OpenCode.
+
+Переменные окружения:
+- ``EIDOS_BOOT_MAX_TOKENS`` — верхняя оценка токенов для всего boot-текста (4096–64000),
+  по умолчанию 25000.
 """
 
+from __future__ import annotations
+
 import json
+import os
 import re
 import time
 from typing import Any
 
 from kernel.config import SLEEP_LAST_WORDS_PATH
 
-# Бюджет: ~31 000 токенов ≈ ~120 000 символов (1 токен ≈ 4 символа для русского)
-MAX_BOOT_CHARS = 120_000
-# Резерв под мета-информацию (принципы, health, pulse, цели)
-META_BUDGET = 5_000
-# Какой процент хронологического окна грузить ПОЛНОСТЬЮ (последние N% диалогов)
+CHARS_PER_TOKEN_EST = 4
+DEFAULT_BOOT_TOKEN_BUDGET = 25_000
+DEFAULT_BOOT_CHARS = DEFAULT_BOOT_TOKEN_BUDGET * CHARS_PER_TOKEN_EST
+MAX_BOOT_CHARS = DEFAULT_BOOT_CHARS
 RECENT_WINDOW_PERCENT = 25
+_BOOT_CONTEXT_HISTORY_LIMIT = 15
 
 
 def _cue_words(value: Any) -> list[str]:
@@ -26,39 +37,108 @@ def _cue_words(value: Any) -> list[str]:
 
 def _count_tokens(text: str) -> int:
     """Грубая оценка токенов: 1 токен ≈ 4 символа."""
-    return len(text) // 4
+    return len(text) // CHARS_PER_TOKEN_EST
 
 
-def boot_context(memory: Any) -> str:
-    """Формирует утренний текст для рабочей памяти.
+def resolve_boot_char_budget(max_boot_chars: int | None = None) -> int:
+    """Максимальная длина строки boot в символах."""
+    if max_boot_chars is not None:
+        return max(10_000, min(320_000, max_boot_chars))
+    raw = os.environ.get("EIDOS_BOOT_MAX_TOKENS", "").strip()
+    if raw.isdigit():
+        tokens = int(raw)
+    else:
+        tokens = DEFAULT_BOOT_TOKEN_BUDGET
+    tokens = max(4096, min(64_000, tokens))
+    return tokens * CHARS_PER_TOKEN_EST
+
+
+def _meta_budget_chars(total_budget: int) -> int:
+    return max(3000, min(12_000, total_budget // 18))
+
+
+def _episode_tags_list(ep: dict[str, Any]) -> list[str]:
+    raw = ep.get("tags")
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(x) for x in parsed]
+        except json.JSONDecodeError:
+            pass
+    return []
+
+
+def _episode_priority(ep: dict[str, Any], *, latest_ts: float) -> float:
+    salience = float(ep.get("salience") or 0)
+    ts = float(ep.get("timestamp") or 0)
+    age_sec = max(0.0, latest_ts - ts)
+    recency = 1.0 / (1.0 + age_sec / (3600 * 24))
+    bonus = 0.0
+    tags_lower = [t.lower() for t in _episode_tags_list(ep)]
+    boosts = (
+        "ошибка",
+        "решение",
+        "архитектура",
+        "kernel",
+        "cli",
+        "eidos",
+        "sleep",
+        "миссия",
+        "experiment",
+        "исследование",
+        "план",
+    )
+    for t in tags_lower:
+        if any(b in t for b in boosts):
+            bonus += 0.12
+        if "cli" in t or "eidos" in t:
+            bonus += 0.06
+    raw_len = len(str(ep.get("raw_text") or ""))
+    size_bonus = min(0.22, raw_len / 6000.0)
+    return salience * 0.48 + recency * 0.34 + bonus + size_bonus
+
+
+def boot_context(
+    memory: Any,
+    *,
+    sync_opencode: bool = True,
+    max_boot_chars: int | None = None,
+    persist_boot_context: bool = True,
+) -> str:
+    """Формирует утренний текст и сохраняет историю boot в WM.
 
     Args:
-        memory: экземпляр Memory (избегаем циклического импорта)
-
-    Returns:
-        Многострочный текст для вставки в рабочую память
+        memory: экземпляр Memory.
+        sync_opencode: подтягивать ли OpenCode в WM (для нативного CLI — False).
+        max_boot_chars: явный лимит символов (иначе EIDOS_BOOT_MAX_TOKENS × 4).
+        persist_boot_context: записать ``working.context['boot_context']`` для chat.
     """
+    budget_chars = resolve_boot_char_budget(max_boot_chars)
+    meta_budget = _meta_budget_chars(budget_chars)
+
     lines: list[str] = []
     meta_lines: list[str] = []
     boot_cues: list[str] = []
     now = time.time()
-    seconds_in_day = 86400
 
     lines.append(f"☀ Загрузка: {time.strftime('%Y-%m-%d %H:%M', time.localtime())}")
     lines.append("")
 
-    # ── Шаг 0: синхронизация с OpenCode (всегда) ──────────────
-    try:
-        from kernel.opencode_adapter import OpenCodeAdapter
-        oc = OpenCodeAdapter()
-        synced = oc.sync_to_working_memory(memory, max_messages=100)
-        if synced:
-            lines.append(f"— Синхронизировано {synced} сообщений из OpenCode")
-            lines.append("")
-    except Exception:
-        pass
+    if sync_opencode:
+        try:
+            from kernel.opencode_adapter import OpenCodeAdapter
 
-    # ── Шаг 0: последние слова перед сном (всегда) ────────────
+            oc = OpenCodeAdapter()
+            synced = oc.sync_to_working_memory(memory, max_messages=100)
+            if synced:
+                lines.append(f"— Синхронизировано {synced} сообщений из OpenCode")
+                lines.append("")
+        except Exception:
+            pass
+
     if SLEEP_LAST_WORDS_PATH.exists():
         try:
             lw = json.loads(SLEEP_LAST_WORDS_PATH.read_text())
@@ -74,7 +154,6 @@ def boot_context(memory: Any) -> str:
         except Exception:
             pass
 
-    # ── Шаг 0.5: активные слоты внимания ──────────────────────
     wm_data = getattr(memory.working, "_data", {}) or {}
     attention_slots = wm_data.get("attention_slots", [])
     if attention_slots:
@@ -88,7 +167,6 @@ def boot_context(memory: Any) -> str:
 
     boot_cues.extend(_cue_words(wm_data.get("context", {})))
 
-    # ── Шаг 1: эпизодическая память по хронологическому окну ─
     episodes = memory.episodic.query(limit=200, min_salience=0.0)
     cue_matches: list[dict[str, Any]] = []
     if boot_cues and hasattr(memory.episodic, "recall_by_cues"):
@@ -117,7 +195,6 @@ def boot_context(memory: Any) -> str:
             earliest = ts_list[0]
             latest = ts_list[-1]
             span = latest - earliest
-            # Окно: последние RECENT_WINDOW_PERCENT% времени
             cutoff = latest - span * RECENT_WINDOW_PERCENT / 100.0
         else:
             cutoff = now
@@ -125,12 +202,15 @@ def boot_context(memory: Any) -> str:
         full_lines: list[str] = []
         summary_lines: list[str] = []
         full_chars = 0
-        summary_chars = 0
-        ep_budget = MAX_BOOT_CHARS - META_BUDGET
+        ep_budget = budget_chars - meta_budget
 
-        # Сортируем от новых к старым
+        latest_ts = max((float(e.get("timestamp") or 0) for e in meaningful), default=now)
         meaningful_sorted = sorted(
-            meaningful, key=lambda e: e.get("timestamp", 0), reverse=True
+            meaningful,
+            key=lambda e: (
+                -_episode_priority(e, latest_ts=latest_ts),
+                -float(e.get("timestamp") or 0),
+            ),
         )
 
         for ep in meaningful_sorted:
@@ -156,7 +236,8 @@ def boot_context(memory: Any) -> str:
 
         if full_lines:
             lines.append(
-                f"— Последние {RECENT_WINDOW_PERCENT}% хронологии ({len(full_lines)} эпизодов):"
+                "— Эпизоды (важность × свежесть; подробно в последнем "
+                f"{RECENT_WINDOW_PERCENT}% временной шкалы; {len(full_lines)} шт.):"
             )
             lines.append("")
             lines.extend(full_lines)
@@ -164,15 +245,13 @@ def boot_context(memory: Any) -> str:
 
         if summary_lines:
             cnt = len(summary_lines)
-            lines.append(f"— Остальные эпизоды ({cnt}, кратко):")
+            lines.append(f"— Эпизоды кратко ({cnt} шт.):")
             lines.append("")
             lines.extend(summary_lines)
             lines.append("")
 
-    # ── Шаг 2: мета-информация (считаем токены, укладываемся) ─
     meta_chars = 0
 
-    # Принципы
     principles = memory.semantic.get_principles(min_confidence=0.7)
     if principles:
         meta_lines.append("— Мои принципы:")
@@ -182,12 +261,16 @@ def boot_context(memory: Any) -> str:
             meta_lines.append(f"  • [{conf:.0%}] {p_short}")
         meta_lines.append("")
 
-    # Здоровье
     try:
         from kernel.health import memory_report
+
         report = memory_report()
         status = "✓ хорошо" if report["health"] == "ok" else "⚠ есть вопросы"
-        wm_info = f"{report['working']['event_count']} событий" if report['working']['event_count'] > 0 else "пуста"
+        wm_info = (
+            f"{report['working']['event_count']} событий"
+            if report["working"]["event_count"] > 0
+            else "пуста"
+        )
         ep_info = f"{report['episodic']['total_episodes']} эпизодов"
         sm_info = f"{report['semantic']['principles']} принципов"
         meta_lines.append("— Самочувствие:")
@@ -200,6 +283,7 @@ def boot_context(memory: Any) -> str:
 
     try:
         from kernel.instrumental import InstrumentalRegistry
+
         ir = InstrumentalRegistry()
         boot_summary = ir.get_boot_summary(limit=3)
         if boot_summary:
@@ -207,9 +291,9 @@ def boot_context(memory: Any) -> str:
     except Exception:
         pass
 
-    # AgentPulse
     try:
         from kernel.agent_pulse import AgentPulse
+
         pulse = AgentPulse(memory)
         suggestion = pulse.check(force=True)
         if suggestion:
@@ -219,7 +303,6 @@ def boot_context(memory: Any) -> str:
     except Exception:
         pass
 
-    # Цели
     try:
         plan_lines = memory.goals.summary()
         if plan_lines:
@@ -229,9 +312,9 @@ def boot_context(memory: Any) -> str:
     except Exception:
         pass
 
-    # MissionControl
     try:
         from kernel.mission_control import MissionControl
+
         mc = MissionControl(memory)
         sc = mc.get_scientific_context()
         if sc:
@@ -244,25 +327,23 @@ def boot_context(memory: Any) -> str:
     except Exception:
         pass
 
-    # Усекаем мета-информацию если не влезает
     meta_final: list[str] = []
     for line in meta_lines:
-        if meta_chars + len(line) > META_BUDGET:
-            meta_final.append(f"  ... (мета обрезано по бюджету {META_BUDGET} символов)")
+        if meta_chars + len(line) > meta_budget:
+            meta_final.append(
+                f"  ... (мета обрезано по бюджету {meta_budget} символов)"
+            )
             break
         meta_final.append(line)
         meta_chars += len(line)
 
     lines.extend(meta_final)
 
-    # ── Финальная сборка ──────────────────────────────────────
     boot_text = "\n".join(lines)
 
-    # Обрезаем по бюджету если всё ещё не влезаем
-    if len(boot_text) > MAX_BOOT_CHARS:
-        boot_text = boot_text[:MAX_BOOT_CHARS] + "\n... (контекст обрезан по бюджету)"
+    if len(boot_text) > budget_chars:
+        boot_text = boot_text[:budget_chars] + "\n... (контекст обрезан по бюджету)"
 
-    # Запись в рабочую память
     wm = memory.working
     wm._data.setdefault("boot_contexts", [])
     tokens_est = _count_tokens(boot_text)
@@ -271,9 +352,18 @@ def boot_context(memory: Any) -> str:
         "type": "boot",
         "content": boot_text,
         "tokens_estimate": tokens_est,
-        "budget_limit": MAX_BOOT_CHARS // 4,
+        "budget_tokens_estimate": budget_chars // CHARS_PER_TOKEN_EST,
     }
     wm._data["boot_contexts"].append(boot_entry)
+    wm._data["boot_contexts"][:] = wm._data["boot_contexts"][-_BOOT_CONTEXT_HISTORY_LIMIT:]
     wm.save()
 
+    if persist_boot_context:
+        memory.working.set_context("boot_context", boot_text)
+
     return boot_text
+
+
+def run_cli_chat_boot(memory: Any) -> str:
+    """Boot для нативного CLI: без OpenCode, бюджет из окружения."""
+    return boot_context(memory, sync_opencode=False)

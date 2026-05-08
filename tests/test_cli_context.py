@@ -76,3 +76,50 @@ def test_build_chat_messages_principles_disabled(monkeypatch):
 
     msgs = build_chat_messages_for_llm(Mem(), "sid")
     assert "Принципы" not in msgs[0]["content"]
+
+
+def test_build_chat_messages_includes_boot_snippet(monkeypatch):
+    monkeypatch.setenv("EIDOS_CHAT_PRINCIPLES", "0")
+    monkeypatch.delenv("EIDOS_CHAT_BOOT_SNIPPET_CHARS", raising=False)
+
+    class Sem:
+        def get_principles(self, **_kwargs):
+            return []
+
+    class WM:
+        data = {
+            "events": [],
+            "context": {"boot_context": "snippet-from-boot-pipeline"},
+            "attention_slots": [],
+        }
+
+    class Mem:
+        working = WM()
+        semantic = Sem()
+
+    msgs = build_chat_messages_for_llm(Mem(), "sid")
+    assert "snippet-from-boot-pipeline" in msgs[0]["content"]
+    assert "Фрагмент сохранённого boot" in msgs[0]["content"]
+
+
+def test_build_chat_messages_boot_snippet_disabled(monkeypatch):
+    monkeypatch.setenv("EIDOS_CHAT_BOOT_SNIPPET", "0")
+    monkeypatch.setenv("EIDOS_CHAT_PRINCIPLES", "0")
+
+    class Sem:
+        def get_principles(self, **_kwargs):
+            return []
+
+    class WM:
+        data = {
+            "events": [],
+            "context": {"boot_context": "hidden-snippet"},
+            "attention_slots": [],
+        }
+
+    class Mem:
+        working = WM()
+        semantic = Sem()
+
+    msgs = build_chat_messages_for_llm(Mem(), "sid")
+    assert "hidden-snippet" not in msgs[0]["content"]
