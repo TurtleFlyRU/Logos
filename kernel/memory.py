@@ -172,10 +172,16 @@ class WorkingMemory:
             except Exception:
                 pass
 
-        # Пишем каждое событие в дневник сразу — журналирование на каждый шаг
+        # Пишем каждое событие в дневник (кроме нативного CLI — там эпизоды уже в episodic,
+        # а checkpoint с write_session тянул бы rubert и дублировал память).
         content = event.get("content", event.get("message", event.get("text", "")))
         role = event.get("role", "user")
-        if content and isinstance(content, str) and len(content) > 5:
+        if (
+            event.get("event_type") != "cli_chat"
+            and content
+            and isinstance(content, str)
+            and len(content) > 5
+        ):
             try:
                 from kernel.journal import Journal
 
@@ -980,6 +986,9 @@ class Memory:
         """Контрольная точка: пишет дневник.
         Git commit/push — только при явном вызове снаружи.
         """
+        if self.working._data.get("context", {}).get("cli_transport") == "eidos":
+            return
+
         events = self.working.data.get("events", [])
         if not events and not force:
             return
