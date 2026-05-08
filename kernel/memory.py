@@ -463,7 +463,7 @@ class EpisodicMemory:
 
     def recall_by_cues(self, cues: list[str], limit: int = 5) -> list[dict[str, Any]]:
         normalized = set(_dedupe(cues))
-        episodes = self.query(limit=1000, min_salience=0.0)
+        episodes = self.query_all(min_salience=0.0, max_rows=None)
         if not normalized:
             return episodes[:limit]
         matches: list[tuple[int, dict[str, Any]]] = []
@@ -490,7 +490,7 @@ class EpisodicMemory:
         episode = dict(zip(columns, rows[0]))
         target_keys = set(str(item).lower() for item in _json_array(episode.get("context_keys")))
         candidates: list[tuple[int, float, int]] = []
-        for other in self.query(limit=1000, min_salience=0.0):
+        for other in self.query_all(min_salience=0.0, max_rows=None):
             other_id = int(other["id"])
             if other_id == episode_id:
                 continue

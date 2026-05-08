@@ -18,6 +18,7 @@ def mock_memory():
     mem.working.save = MagicMock()
     mem.working.set_context = MagicMock()
     mem.episodic.query.return_value = []
+    mem.episodic.query_all.return_value = []
     mem.semantic.get_principles.return_value = []
     mem.goals.summary.return_value = ""
     return mem
@@ -66,10 +67,12 @@ def test_boot_includes_health_report(mock_memory):
 
 
 def test_boot_respects_token_budget(mock_memory):
-    mock_memory.episodic.query.return_value = [
+    episodes = [
         {"timestamp": 100.0, "summary": "x" * 5000, "raw_text": "y" * 2000}
         for _ in range(200)
     ]
+    mock_memory.episodic.query.return_value = episodes
+    mock_memory.episodic.query_all.return_value = episodes
     ctx = boot_context(mock_memory)
     assert len(ctx) <= MAX_BOOT_CHARS + 200
 
@@ -81,6 +84,12 @@ def test_boot_principles_respects_confidence(mock_memory):
     ]
     ctx = boot_context(mock_memory)
     assert "Высокая уверенность" in ctx
+
+
+def test_boot_calls_episodic_query_all(mock_memory):
+    mock_memory.episodic.query_all.return_value = []
+    boot_context(mock_memory)
+    mock_memory.episodic.query_all.assert_called()
 
 
 def test_boot_with_empty_episodic(mock_memory):

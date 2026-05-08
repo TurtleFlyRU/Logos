@@ -1,8 +1,8 @@
 """Boot-протокол Эйдоса — ритуал утреннего пробуждения.
 
 Формирует контекст с лимитом символов (грубо токены × 4). По умолчанию ~25K токенов.
-Пайплайн вызывает отделы памяти через их API (WM-слоты, episodic.query/recall_by_cues,
-semantic.get_principles, цели, instrumental, pulse и др.). Эпизоды упорядочиваются по
+Пайплайн вызывает отделы памяти через их API (WM-слоты, episodic ``query_all``/``query``,
+``recall_by_cues``, semantic.get_principles, цели, instrumental, pulse и др.). Эпизоды упорядочиваются по
 важности (salience, давность, теги, объём), затем укладываются в бюджет.
 
 CLI: ``boot_context(memory, sync_opencode=False)`` — без автоматической синхронизации OpenCode.
@@ -10,6 +10,8 @@ CLI: ``boot_context(memory, sync_opencode=False)`` — без автоматич
 Переменные окружения:
 - ``EIDOS_BOOT_MAX_TOKENS`` — верхняя оценка токенов для всего boot-текста (4096–64000),
   по умолчанию 25000.
+- ``EIDOS_BOOT_EPISODIC_SCAN_CAP`` — опционально ограничить число строк episodic при сборке boot
+  (положительное целое); пусто или ``0`` — без лимита (полная выборка через ``query_all``).
 """
 
 from __future__ import annotations
@@ -55,6 +57,35 @@ def resolve_boot_char_budget(max_boot_chars: int | None = None) -> int:
 
 def _meta_budget_chars(total_budget: int) -> int:
     return max(3000, min(12_000, total_budget // 18))
+
+
+def _boot_episodic_scan_cap() -> int | None:
+    raw = os.environ.get("EIDOS_BOOT_EPISODIC_SCAN_CAP", "").strip()
+    if raw == "":
+        return None
+    try:
+        v = int(raw)
+        if v <= 0:
+            return None
+        return min(v, 2_000_000)
+    except ValueError:
+        return None
+
+
+def _boot_episodic_pool(memory: Any) -> list[dict[str, Any]]:
+    """Все эпизоды для boot (или с CAP из окружения), без жёсткого LIMIT 200."""
+    cap = _boot_episodic_scan_cap()
+    try:
+        ep = memory.episodic
+        if hasattr(ep, "query_all"):
+            return ep.query_all(min_salience=0.0, max_rows=cap)
+    except Exception:
+        pass
+    try:
+        limit = cap if cap is not None else 2_000_000
+        return memory.episodic.query(limit=limit, min_salience=0.0)
+    except Exception:
+        return []
 
 
 def _episode_tags_list(ep: dict[str, Any]) -> list[str]:
@@ -167,7 +198,7 @@ def boot_context(
 
     boot_cues.extend(_cue_words(wm_data.get("context", {})))
 
-    episodes = memory.episodic.query(limit=200, min_salience=0.0)
+    episodes = _boot_episodic_pool(memory)
     cue_matches: list[dict[str, Any]] = []
     if boot_cues and hasattr(memory.episodic, "recall_by_cues"):
         try:
