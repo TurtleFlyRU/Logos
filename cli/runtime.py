@@ -15,6 +15,23 @@ if TYPE_CHECKING:
     from kernel.memory import Memory
 
 
+def _friendly_http_status_line(code: int) -> str | None:
+    """Краткое пояснение по распространённым кодам ответа LLM API."""
+    return {
+        503: (
+            "Сервис API временно недоступен (503): перегрузка или работы на стороне "
+            "провайдера. Повторите позже или задайте другой LLM_BASE_URL."
+        ),
+        502: (
+            "Шлюз вернул 502: сбой или таймаут у провайдера или прокси; повторите или "
+            "проверьте LLM_IGNORE_PROXY."
+        ),
+        429: "Слишком много запросов (429): подождите или проверьте лимиты ключа.",
+        401: "Не авторизован (401): проверьте LLM_API_KEY / DEEPSEEK_API_KEY.",
+        403: "Доступ запрещён (403): ключ или модель недоступны для этого аккаунта.",
+    }.get(code)
+
+
 def run_chat_interactive(
     memory: Memory,
     session_id: str,
@@ -111,6 +128,14 @@ def run_chat_interactive(
                     flush=True,
                 )
                 reply = None
+            except httpx.HTTPStatusError as exc:
+                code = exc.response.status_code
+                hint = _friendly_http_status_line(code)
+                if hint:
+                    print(f"[eidos] {hint}", flush=True)
+                else:
+                    print(f"[eidos] Ошибка HTTP {code}: {exc}", flush=True)
+                reply = None
             except httpx.HTTPError as exc:
                 print(f"[eidos] Ошибка HTTP: {exc}", flush=True)
                 reply = None
@@ -147,8 +172,19 @@ def run_ask(question: str, *, use_llm: bool = True) -> int:
             print(f"[stub] {exc}", file=sys.stderr)
             print(f"[stub] Вопрос был: {question[:500]}")
             return 2
+        except httpx.TimeoutException as exc:
+            print(f"[eidos] Таймаут: {exc}", flush=True)
+            return 3
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            hint = _friendly_http_status_line(code)
+            if hint:
+                print(f"[eidos] {hint}", flush=True)
+            else:
+                print(f"[eidos] Ошибка HTTP {code}: {exc}", flush=True)
+            return 3
         except httpx.HTTPError as exc:
-            print(f"HTTP ошибка: {exc}", file=sys.stderr)
+            print(f"[eidos] Ошибка HTTP: {exc}", flush=True)
             return 3
         except KeyboardInterrupt:
             print("\n[eidos] Прервано.", flush=True)

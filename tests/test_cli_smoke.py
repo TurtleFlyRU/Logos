@@ -138,3 +138,11 @@ def test_ask_keyboard_interrupt_returns_130(monkeypatch):
     from cli.runtime import run_ask
 
     assert run_ask("q", use_llm=True) == 130
+
+
+def test_friendly_http_status_hints():
+    from cli.runtime import _friendly_http_status_line
+
+    assert _friendly_http_status_line(503) and "503" in _friendly_http_status_line(503)
+    assert _friendly_http_status_line(429) and "429" in _friendly_http_status_line(429)
+    assert _friendly_http_status_line(999) is None
