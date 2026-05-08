@@ -220,6 +220,12 @@ def run_chat_interactive(
                 raw = os.environ.get("EIDOS_CHAT_TOTAL_CHARS", "").strip()
                 total_budget = int(raw) if raw.isdigit() else 0
                 m = chat_context_metrics(messages, total_budget=total_budget)
+                ctx = memory.working.data.get("context") or {}
+                user_name = (
+                    str(ctx.get("user_display_name")).strip()
+                    if isinstance(ctx.get("user_display_name"), str)
+                    else ""
+                )
                 layers = m["layers"]
                 layers_short = ",".join(
                     k
@@ -231,6 +237,7 @@ def run_chat_interactive(
                     f"budget={m['budget_total_chars']} chars; "
                     f"payload={m['total_chars']} chars; "
                     f"system={m['system_messages']}; hist={m['history_messages']} (tool={m['tool_messages']}); "
+                    f"user={user_name or '-'}; "
                     f"layers={layers_short or '-'}",
                     flush=True,
                 )
@@ -290,6 +297,12 @@ def run_chat_interactive(
             raw = os.environ.get("EIDOS_CHAT_TOTAL_CHARS", "").strip()
             total_budget = int(raw) if raw.isdigit() else 0
             m = chat_context_metrics(messages, total_budget=total_budget)
+            ctx = memory.working.data.get("context") or {}
+            user_name = (
+                str(ctx.get("user_display_name")).strip()
+                if isinstance(ctx.get("user_display_name"), str)
+                else ""
+            )
             layers = m["layers"]
             layers_short = ",".join(k for k, v in layers.items() if v)
             print(
@@ -297,6 +310,7 @@ def run_chat_interactive(
                 f"budget={m['budget_total_chars']} chars; "
                 f"payload={m['total_chars']} chars; "
                 f"system={m['system_messages']}; hist={m['history_messages']} (tool={m['tool_messages']}); "
+                f"user={user_name or '-'}; "
                 f"layers={layers_short or '-'}",
                 flush=True,
             )
