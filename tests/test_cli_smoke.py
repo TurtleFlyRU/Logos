@@ -9,6 +9,8 @@ import sys
 import uuid
 from pathlib import Path
 
+import httpx
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EIDOS = REPO_ROOT / "eidos.py"
 
@@ -146,3 +148,15 @@ def test_friendly_http_status_hints():
     assert _friendly_http_status_line(503) and "503" in _friendly_http_status_line(503)
     assert _friendly_http_status_line(429) and "429" in _friendly_http_status_line(429)
     assert _friendly_http_status_line(999) is None
+
+
+def test_http_error_body_snippet():
+    from cli.runtime import _http_error_body_snippet
+
+    req = httpx.Request("POST", "https://api.test/v1/chat/completions")
+    resp = httpx.Response(
+        503,
+        content=b'{"error":{"message":"overload"}}',
+        request=req,
+    )
+    assert "overload" in (_http_error_body_snippet(resp) or "")

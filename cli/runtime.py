@@ -32,6 +32,33 @@ def _friendly_http_status_line(code: int) -> str | None:
     }.get(code)
 
 
+def _http_error_body_snippet(response: httpx.Response, max_len: int = 900) -> str | None:
+    """Обрезка тела ответа для терминала (ошибки API часто приходят как JSON/HTML)."""
+    try:
+        raw = response.content[: max_len + 120]
+        text = raw.decode("utf-8", errors="replace").strip()
+    except Exception:
+        return None
+    if not text:
+        return None
+    collapsed = " ".join(text.split())
+    if len(collapsed) > max_len:
+        return collapsed[: max_len - 1] + "…"
+    return collapsed
+
+
+def _print_http_status_error(exc: httpx.HTTPStatusError) -> None:
+    """Краткая подсказка + исходное сообщение httpx + фрагмент тела ответа провайдера."""
+    code = exc.response.status_code
+    hint = _friendly_http_status_line(code)
+    if hint:
+        print(f"[eidos] {hint}", flush=True)
+    print(f"[eidos] {exc}", flush=True)
+    snippet = _http_error_body_snippet(exc.response)
+    if snippet:
+        print(f"[eidos] Тело ответа API: {snippet}", flush=True)
+
+
 def run_chat_interactive(
     memory: Memory,
     session_id: str,
@@ -129,12 +156,7 @@ def run_chat_interactive(
                 )
                 reply = None
             except httpx.HTTPStatusError as exc:
-                code = exc.response.status_code
-                hint = _friendly_http_status_line(code)
-                if hint:
-                    print(f"[eidos] {hint}", flush=True)
-                else:
-                    print(f"[eidos] Ошибка HTTP {code}: {exc}", flush=True)
+                _print_http_status_error(exc)
                 reply = None
             except httpx.HTTPError as exc:
                 print(f"[eidos] Ошибка HTTP: {exc}", flush=True)
@@ -176,12 +198,7 @@ def run_ask(question: str, *, use_llm: bool = True) -> int:
             print(f"[eidos] Таймаут: {exc}", flush=True)
             return 3
         except httpx.HTTPStatusError as exc:
-            code = exc.response.status_code
-            hint = _friendly_http_status_line(code)
-            if hint:
-                print(f"[eidos] {hint}", flush=True)
-            else:
-                print(f"[eidos] Ошибка HTTP {code}: {exc}", flush=True)
+            _print_http_status_error(exc)
             return 3
         except httpx.HTTPError as exc:
             print(f"[eidos] Ошибка HTTP: {exc}", flush=True)
