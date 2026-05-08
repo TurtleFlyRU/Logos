@@ -91,3 +91,34 @@ def test_old_history_is_summarized_into_system_block(monkeypatch):
     assert msgs[-1]["role"] in ("user", "assistant")
     assert estimate_messages_chars(msgs) <= 4000
 
+
+def test_layer_budget_drops_low_priority_blocks_first(monkeypatch):
+    # Настраиваем так, чтобы extra-блоки влезали не все: active_memory должен первым пострадать.
+    monkeypatch.setenv("EIDOS_CHAT_MEMORY_PIPELINE", "episodic_only")
+    monkeypatch.setenv("EIDOS_CHAT_PRINCIPLES", "0")
+    monkeypatch.setenv("EIDOS_CHAT_BOOT_SNIPPET", "0")
+    monkeypatch.setenv("EIDOS_CHAT_ATTENTION", "0")
+    monkeypatch.setenv("EIDOS_CHAT_USER_IDENTITY", "0")
+
+    monkeypatch.setenv("EIDOS_CHAT_LAYER_BUDGET", "1")
+    monkeypatch.setenv("EIDOS_CHAT_SUMMARIZE_OLD_WM", "0")
+
+    # Очень маленький бюджет, но с активной памятью включённой
+    monkeypatch.setenv("EIDOS_CHAT_ACTIVE_MEMORY", "1")
+    monkeypatch.setenv("EIDOS_CHAT_ACTIVE_MEMORY_CHARS", "50000")  # намеренно огромно
+    monkeypatch.setenv("EIDOS_CHAT_TOTAL_CHARS", "2200")
+
+    sid = "s"
+    events = []
+    for i in range(10):
+        events.append({"role": "user", "content": f"U{i} " + ("x" * 120), "cli_session_id": sid})
+        events.append({"role": "assistant", "content": f"A{i} " + ("y" * 120), "cli_session_id": sid})
+
+    mem = _make_mem(events)
+    msgs = build_chat_messages_for_llm(mem, sid, user_message="test")
+
+    # Влезли: persona + хвост истории. Блок активной памяти может не попасть из-за бюджета.
+    sys_text = msgs[0]["content"]
+    assert "Ты Эйдос" in sys_text
+    assert estimate_messages_chars(msgs) <= 2200
+

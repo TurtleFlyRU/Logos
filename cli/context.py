@@ -61,6 +61,7 @@ _DEFAULT_ACTIVE_KEYWORD_TOP = 12
 _DEFAULT_TOTAL_CHAT_CHARS = 0  # 0/пусто — выключено (сохраняем поведение v1)
 _DEFAULT_SUMMARY_CHARS = 6000
 _DEFAULT_KEEP_LAST_MESSAGES = 16
+_DEFAULT_LAYER_BUDGET = True
 
 
 def _env_flag(name: str, *, default: bool = True) -> bool:
@@ -141,6 +142,15 @@ def _keep_last_messages() -> int:
         return _DEFAULT_KEEP_LAST_MESSAGES
 
 
+def _layer_budget_enabled(*, total_budget: int) -> bool:
+    """Включить «бюджет по слоям» (8.1).
+
+    По умолчанию включается, если задан общий бюджет ``EIDOS_CHAT_TOTAL_CHARS``.
+    Можно принудительно выключить через ``EIDOS_CHAT_LAYER_BUDGET=0``.
+    """
+    return _env_flag("EIDOS_CHAT_LAYER_BUDGET", default=(total_budget > 0 and _DEFAULT_LAYER_BUDGET))
+
+
 def estimate_messages_chars(messages: list[dict[str, Any]]) -> int:
     """Грубая оценка размера payload: суммарная длина content."""
     total = 0
@@ -178,6 +188,71 @@ def _render_compact_history_summary(
     if len(text) > max_chars:
         text = text[: max_chars - 1] + "…"
     return text
+
+
+def _truncate_block(text: str, *, max_chars: int) -> str:
+    if max_chars <= 0:
+        return ""
+    s = (text or "").strip()
+    if not s:
+        return ""
+    if len(s) <= max_chars:
+        return s
+    if max_chars < 4:
+        return s[:max_chars]
+    return s[: max_chars - 1] + "…"
+
+
+def _build_system_extra_with_budget(
+    memory: Any,
+    cli_session_id: str,
+    *,
+    user_message: str | None,
+    budget_chars: int,
+) -> str:
+    """Собирает extra-блоки system с деградацией по слоям (8.1)."""
+    rem = budget_chars
+    parts: list[str] = []
+
+    def add(block: str) -> None:
+        nonlocal rem
+        b = block.strip() if isinstance(block, str) else ""
+        if not b or rem <= 0:
+            return
+        b2 = _truncate_block(b, max_chars=rem)
+        if b2:
+            parts.append(b2)
+            rem -= len(b2)
+
+    # Приоритеты: identity -> attention -> active memory -> boot snippet -> principles
+    add(format_user_identity_block(memory))
+    if _env_flag("EIDOS_CHAT_ATTENTION", default=True):
+        add(format_attention_slots_block(memory))
+
+    if _env_flag("EIDOS_CHAT_ACTIVE_MEMORY", default=True) and rem > 0:
+        # active memory уже умеет бюджет
+        add(
+            format_active_memory_retrieval_block(
+                memory,
+                user_message,
+                cli_session_id=cli_session_id,
+                max_chars=min(rem, _active_memory_budget_chars()),
+            )
+        )
+
+    if _env_flag("EIDOS_CHAT_BOOT_SNIPPET", default=True) and rem > 0:
+        add(format_boot_context_snippet(memory, max_chars=min(rem, _boot_snippet_char_cap())))
+
+    if _env_flag("EIDOS_CHAT_PRINCIPLES", default=True) and rem > 0:
+        add(
+            format_semantic_principles_block(
+                memory,
+                limit=_DEFAULT_PRINCIPLES_LIMIT,
+                min_confidence=_DEFAULT_PRINCIPLES_MIN_CONF,
+            )
+        )
+
+    return "\n\n".join(p for p in parts if p).strip()
 
 
 def _apply_total_char_budget(
@@ -807,11 +882,28 @@ def build_chat_messages_for_llm(
     if tools_compatible_history and not tools_enabled():
         hist = [h for h in hist if h.get("role") in ("user", "assistant")]
 
-    extra = build_chat_context(memory, cli_session_id, user_message=user_message)
+    total_budget = _total_chat_char_budget()
+
+    # 8.1: если задан общий бюджет — собираем system-пристройку по слоям заранее,
+    # чтобы минимизировать «грубую резку» system в _apply_total_char_budget.
+    if _layer_budget_enabled(total_budget=total_budget):
+        # резервируем место под историю (приблизительно) и саму persona
+        persona = CLI_CHAT_PERSONA.strip()
+        hist_chars = estimate_messages_chars(hist)
+        # system extra получает всё, что осталось, но не меньше 0
+        extra_budget = max(0, total_budget - len(persona) - hist_chars - 50)
+        extra = _build_system_extra_with_budget(
+            memory,
+            cli_session_id,
+            user_message=user_message,
+            budget_chars=extra_budget,
+        )
+    else:
+        extra = build_chat_context(memory, cli_session_id, user_message=user_message)
+
     system_content = CLI_CHAT_PERSONA.strip()
     if extra:
         system_content = f"{system_content}\n\n{extra}"
 
     messages = [{"role": "system", "content": system_content}, *hist]
-    total_budget = _total_chat_char_budget()
     return _apply_total_char_budget(messages, total_budget=total_budget)
