@@ -5,7 +5,10 @@
 ``recall_by_cues``, semantic.get_principles, цели, instrumental, pulse и др.). Эпизоды упорядочиваются по
 важности (salience, давность, теги, объём), затем укладываются в бюджет.
 
-CLI: ``boot_context(memory, sync_opencode=False)`` — без автоматической синхронизации OpenCode.
+CLI: ``run_cli_chat_boot`` вызывает ``boot_context(..., sync_opencode=False)``.
+
+Легаси-синхронизация OpenCode при ``Memory.boot()`` и в WM-событиях: переменная
+``EIDOS_SYNC_OPENCODE`` (1/true/yes/on). Иначе OpenCode только через ``eidos import-opencode``.
 
 Переменные окружения:
 - ``EIDOS_BOOT_MAX_TOKENS`` — верхняя оценка токенов для всего boot-текста (4096–64000),
@@ -132,10 +135,25 @@ def _episode_priority(ep: dict[str, Any], *, latest_ts: float) -> float:
     return salience * 0.48 + recency * 0.34 + bonus + size_bonus
 
 
+def boot_native_context(
+    memory: Any,
+    *,
+    max_boot_chars: int | None = None,
+    persist_boot_context: bool = True,
+) -> str:
+    """Boot без какой-либо синхронизации OpenCode (нативный режим по умолчанию)."""
+    return boot_context(
+        memory,
+        sync_opencode=False,
+        max_boot_chars=max_boot_chars,
+        persist_boot_context=persist_boot_context,
+    )
+
+
 def boot_context(
     memory: Any,
     *,
-    sync_opencode: bool = True,
+    sync_opencode: bool = False,
     max_boot_chars: int | None = None,
     persist_boot_context: bool = True,
 ) -> str:
@@ -143,7 +161,8 @@ def boot_context(
 
     Args:
         memory: экземпляр Memory.
-        sync_opencode: подтягивать ли OpenCode в WM (для нативного CLI — False).
+        sync_opencode: подтягивать ли OpenCode в WM (линия ``sync_to_working_memory``).
+            По умолчанию выключено; легаси: ``Memory.boot`` с ``EIDOS_SYNC_OPENCODE``.
         max_boot_chars: явный лимит символов (иначе EIDOS_BOOT_MAX_TOKENS × 4).
         persist_boot_context: записать ``working.context['boot_context']`` для chat.
     """

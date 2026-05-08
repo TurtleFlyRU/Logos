@@ -82,6 +82,22 @@ def _extract_context_keys(
     return _dedupe(keys)
 
 
+def env_sync_opencode() -> bool:
+    """Легаси-режим: подтягивать OpenCode при boot и в WM-событиях.
+
+    Включается переменной окружения ``EIDOS_SYNC_OPENCODE`` (1 / true / yes / on).
+    Нативный CLI по умолчанию работает без неё.
+    """
+    import os
+
+    return os.environ.get("EIDOS_SYNC_OPENCODE", "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
 def _extract_tools_used(tags: list[str], extra: list[str] | None = None) -> list[str]:
     tools = [tag.removeprefix("tool:") for tag in tags if tag.startswith("tool:")]
     if extra:
@@ -165,8 +181,12 @@ class WorkingMemory:
 
         mem = self._memory
 
-        # Постоянная синхронизация из OpenCode
-        if mem is not None and hasattr(mem, "_sync_from_opencode"):
+        # OpenCode в WM-событиях — только в легаси-режиме (см. EIDOS_SYNC_OPENCODE)
+        if (
+            mem is not None
+            and hasattr(mem, "_sync_from_opencode")
+            and env_sync_opencode()
+        ):
             try:
                 mem._sync_from_opencode()
             except Exception:
@@ -654,8 +674,10 @@ class Memory:
         return cls._instance
 
     def _sync_from_opencode(self) -> int:
-        """Синхронизирует диалоги из OpenCode в эпизодическую память.
-        
+        """Импорт сообщений последней сессии OpenCode в episodic (дедуп по source_id).
+
+        Не вызывается при boot по умолчанию — только явная команда или ``EIDOS_SYNC_OPENCODE``.
+
         Returns:
             Количество новых записей.
         """
@@ -669,15 +691,23 @@ class Memory:
             if not session:
                 return 0
 
-            # Не синхронизируем ту же сессию дважды
-            if self._oc_last_sync == session.id:
-                return 0
-            self._oc_last_sync = session.id
+            existing_ids = {
+                str(x)
+                for x in self.episodic._query(
+                    "SELECT source_id FROM episodes WHERE source = 'opencode' "
+                    "AND source_id IS NOT NULL"
+                )
+            }
 
-            msgs = self._oc_adapter.get_session_messages(session.id, limit=200, with_parts=True)
+            msgs = self._oc_adapter.get_session_messages(
+                session.id, limit=500, with_parts=True
+            )
             count = 0
             for m in msgs:
                 if not m.content.strip():
+                    continue
+                mid = str(m.id)
+                if mid in existing_ids:
                     continue
                 part_types = [part.type for part in m.parts if part.type]
                 raw = json.dumps(
@@ -692,20 +722,29 @@ class Memory:
                     ensure_ascii=False,
                 )
                 summary = f"[OpenCode {m.role}] {m.content[:200]}"
-                self.record_episode(
-                    raw,
-                    summary=summary,
-                    salience=0.6,
-                    tags=["opencode", "auto"],
-                    session_id=session.id,
-                    context_keys=[
-                        session.project_id or session.slug or session.directory,
-                        *(part_types or ["message"]),
-                        m.role,
-                    ],
-                    tools_used=part_types,
+                self.episodic.store(
+                    {
+                        "timestamp": m.time_created,
+                        "session_id": session.id,
+                        "salience": 0.6,
+                        "tags": ["opencode", "import", session.slug, m.role],
+                        "summary": summary,
+                        "raw_text": raw,
+                        "context_keys": [
+                            session.project_id or session.slug or session.directory,
+                            *(part_types or ["message"]),
+                            m.role,
+                        ],
+                        "tools": part_types,
+                        "tools_used": part_types,
+                        "source": "opencode",
+                        "source_id": mid,
+                    }
                 )
+                existing_ids.add(mid)
                 count += 1
+            if count:
+                self._oc_last_sync = session.id
             return count
         except (
             AttributeError,
@@ -718,15 +757,47 @@ class Memory:
         ):
             return 0
 
-    def boot(self) -> str:
-        """Boot-протокол: ритуал пробуждения. Формирует и возвращает контекст."""
+    def import_opencode_last_session(self) -> int:
+        """Явный импорт последней сессии OpenCode в episodic (дедуп по source_id)."""
+        return self._sync_from_opencode()
+
+    def import_opencode_sessions(
+        self, *, all_sessions: bool = False, max_sessions: int = 100
+    ) -> dict[str, int]:
+        """Явный импорт из OpenCode в episodic (адаптер, дедуп по source_id).
+
+        Args:
+            all_sessions: если False — только самая свежая сессия (эквивалент лимита 1).
+            max_sessions: при ``all_sessions=True`` — сколько последних сессий обойти (cap).
+
+        Returns:
+            Словарь со slug сессии → число новых сообщений; ключ ``_total`` — сумма.
+        """
+        from kernel.opencode_adapter import OpenCodeAdapter
+
+        oc = OpenCodeAdapter()
+        limit = max_sessions if all_sessions else 1
+        return oc.import_all_to_episodic(self, max_sessions=limit)
+
+    def boot(self, *, sync_opencode: bool | None = None) -> str:
+        """Boot-протокол: ритуал пробуждения. Формирует и возвращает контекст.
+
+        Args:
+            sync_opencode: подтянуть OpenCode в episodic и в текст boot; по умолчанию
+                берётся из ``env_sync_opencode()`` (обычно выключено для нативного CLI).
+        """
         from kernel.boot import boot_context as _boot
 
-        synced = self._sync_from_opencode()
-        if synced:
-            self.working.set_context("opencode_synced", synced)
+        if sync_opencode is None:
+            sync_opencode = env_sync_opencode()
 
-        context = _boot(self)
+        synced = 0
+        if sync_opencode:
+            synced = self._sync_from_opencode()
+            if synced:
+                self.working.set_context("opencode_synced", synced)
+
+        context = _boot(self, sync_opencode=sync_opencode)
         self.working.set_context("boot_context", context)
         return context
 

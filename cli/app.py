@@ -64,11 +64,12 @@ def _cmd_ask(args: argparse.Namespace) -> int:
     return run_ask(q, use_llm=not args.stub)
 
 
-def _cmd_boot(_args: argparse.Namespace) -> int:
+def _cmd_boot(args: argparse.Namespace) -> int:
     from kernel.memory import Memory
 
     memory = Memory(auto_boot=False)
-    text = memory.boot()
+    sync_oc = getattr(args, "sync_opencode", False)
+    text = memory.boot(sync_opencode=sync_oc if sync_oc else None)
     print(text)
     return 0
 
@@ -82,16 +83,26 @@ def _cmd_sleep(args: argparse.Namespace) -> int:
     return 0 if report.get("status") != "skipped" else 0
 
 
-def _cmd_import_opencode(_args: argparse.Namespace) -> int:
+def _cmd_import_opencode(args: argparse.Namespace) -> int:
     from kernel.memory import Memory
 
     memory = Memory(auto_boot=False)
     try:
-        count = memory._sync_from_opencode()
+        if args.all:
+            stats = memory.import_opencode_sessions(
+                all_sessions=True,
+                max_sessions=args.max_sessions,
+            )
+            total = int(stats.pop("_total", 0))
+            print(f"Импортировано новых сообщений: {total}")
+            for slug, n in sorted(stats.items()):
+                print(f"  {slug}: {n}")
+        else:
+            n = memory.import_opencode_last_session()
+            print(f"Импортировано из последней сессии OpenCode: {n} новых сообщений")
     except Exception as exc:
         print(f"Импорт не выполнен: {exc}", file=sys.stderr)
         return 3
-    print(f"Импортировано сообщений в episodic: {count}")
     return 0
 
 
@@ -139,6 +150,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_ask.set_defaults(func=_cmd_ask)
 
     p_boot = sub.add_parser("boot", help="Вывести boot-контекст")
+    p_boot.add_argument(
+        "--sync-opencode",
+        action="store_true",
+        help="Подтянуть OpenCode в episodic и в текст boot (иначе только если задан EIDOS_SYNC_OPENCODE)",
+    )
     p_boot.set_defaults(func=_cmd_boot)
 
     p_sleep = sub.add_parser("sleep", help="Запустить sleep-пайплайн памяти")
@@ -151,7 +167,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_im = sub.add_parser(
         "import-opencode",
-        help="Импорт последней сессии OpenCode в episodic",
+        help="Импорт истории OpenCode в episodic (явная операция; БД OpenCode не нужна для обычного boot)",
+    )
+    p_im.add_argument(
+        "--all",
+        action="store_true",
+        help="Обойти несколько последних сессий (см. --max-sessions)",
+    )
+    p_im.add_argument(
+        "--max-sessions",
+        type=int,
+        default=100,
+        metavar="N",
+        help="Максимум сессий при --all (по умолчанию 100)",
     )
     p_im.set_defaults(func=_cmd_import_opencode)
 
