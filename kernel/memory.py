@@ -228,12 +228,18 @@ class WorkingMemory:
                 ]
                 content = event.get("content", "") or event.get("command", "") or event.get("result", "") or ""
                 summary = f"[{role}] {tool + ': ' if tool else ''}{str(content)[:200]}"
+                ev_tags = event.get("tags")
+                episode_tags: list[str] = []
+                if isinstance(ev_tags, list):
+                    episode_tags = [str(t) for t in ev_tags if t is not None and str(t).strip()]
                 mem.record_episode(
                     raw,
                     summary=summary,
                     salience=0.6,
+                    tags=episode_tags,
                     context_keys=[str(project), str(event_type), str(role)],
                     tools_used=([str(tool)] if tool else []) + part_tools,
+                    session_id=event.get("cli_session_id"),
                 )
             except (AttributeError, KeyError, TypeError, ValueError, sqlite3.Error):
                 pass

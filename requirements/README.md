@@ -31,3 +31,5 @@ pip install -r requirements/full-local.txt
 ```
 
 Версии заданы **нижними границами** для совместимости; для воспроизводимых билдов можно сделать `pip freeze > requirements-lock.txt` в вашем окружении.
+
+Тесты CLI могут задавать **`LOGOS_DATA_ROOT`** — каталог вместо обычного `data/` репозитория (изоляция SQLite и `cli_sessions`).

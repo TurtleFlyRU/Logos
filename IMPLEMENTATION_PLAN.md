@@ -55,6 +55,8 @@
 
 **Критерий готовности:** после двух реплик в WM есть записи; после выхода и нового запуска история доступна (хотя бы последние *N* событий).
 
+**Реализация:** `chat` пишет user/assistant через `WorkingMemory.add_event` с полями `cli_session_id`, тегами `cli`/`eidos`; метаданные в `data/cli_sessions/` (`latest.json` + `{uuid}.json`); переменная **`LOGOS_DATA_ROOT`** подменяет каталог данных (тесты и изоляция); история для API — **`cli/context.py::wm_events_to_chat_messages`**. Boot при старте `chat` не вызывается.
+
 ---
 
 ## Фаза 4 — Multi-turn инструменты

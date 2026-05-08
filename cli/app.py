@@ -6,10 +6,44 @@ import argparse
 import sys
 
 
-def _cmd_chat(_args: argparse.Namespace) -> int:
-    from cli.runtime import run_chat_stub
+def _cmd_chat(args: argparse.Namespace) -> int:
+    from kernel.memory import Memory
 
-    run_chat_stub()
+    from cli import session as sess
+    from cli.runtime import run_chat_interactive
+
+    if getattr(args, "session", None) and args.new:
+        print("Нельзя использовать --session и --new вместе.", file=sys.stderr)
+        return 2
+
+    memory = Memory(auto_boot=False)
+
+    if args.session:
+        if not sess.is_uuid(args.session):
+            print("Аргумент --session должен быть UUID.", file=sys.stderr)
+            return 2
+        sid = sess.normalize_session_id(args.session)
+        sess.touch_session(sid)
+        memory.working.set_context("cli_session_id", sid)
+        memory.working.set_context("cli_transport", "eidos")
+        sess.write_latest(sid)
+    elif args.new:
+        sid = sess.new_session_id()
+        memory.working.clear()
+        memory.working.set_context("cli_session_id", sid)
+        memory.working.set_context("cli_transport", "eidos")
+        sess.touch_session(sid)
+        sess.write_latest(sid)
+    else:
+        sid = sess.read_latest()
+        if not sid:
+            sid = sess.new_session_id()
+        sess.touch_session(sid)
+        memory.working.set_context("cli_session_id", sid)
+        memory.working.set_context("cli_transport", "eidos")
+        sess.write_latest(sid)
+
+    run_chat_interactive(memory, sid, use_llm=not args.stub, stub=args.stub)
     return 0
 
 
@@ -61,7 +95,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_chat = sub.add_parser("chat", help="Интерактивный режим (stub)")
+    p_chat = sub.add_parser("chat", help="Интерактивный диалог (WM + LLM)")
+    p_chat.add_argument(
+        "--new",
+        action="store_true",
+        help="Новая сессия: очистить рабочую память и выдать новый session_id",
+    )
+    p_chat.add_argument(
+        "--session",
+        metavar="UUID",
+        help="Продолжить указанную сессию (создаёт JSON при отсутствии файла)",
+    )
+    p_chat.add_argument(
+        "--stub",
+        action="store_true",
+        help="Не вызывать LLM (локальный echo)",
+    )
     p_chat.set_defaults(func=_cmd_chat)
 
     p_ask = sub.add_parser("ask", help="Один вопрос к LLM")

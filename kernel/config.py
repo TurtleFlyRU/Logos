@@ -1,10 +1,19 @@
+import os
 from pathlib import Path
 
-DATA_ROOT = Path(__file__).resolve().parent.parent / "data"
-REPO_ROOT = DATA_ROOT.parent
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+if os.environ.get("LOGOS_DATA_ROOT", "").strip():
+    DATA_ROOT = Path(os.environ["LOGOS_DATA_ROOT"]).expanduser().resolve()
+else:
+    DATA_ROOT = REPO_ROOT / "data"
 
 # Working memory
 WORKING_MEMORY_PATH = DATA_ROOT / "working" / "current.json"
+
+# CLI: метаданные сессий (события диалога — в WM с полем cli_session_id)
+CLI_SESSIONS_DIR = DATA_ROOT / "cli_sessions"
+CLI_SESSION_LATEST_PATH = CLI_SESSIONS_DIR / "latest.json"
 
 # Episodic memory
 EPISODIC_DB_PATH = DATA_ROOT / "episodic" / "episodes.db"
