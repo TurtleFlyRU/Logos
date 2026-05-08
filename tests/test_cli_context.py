@@ -13,13 +13,15 @@ def test_wm_events_filters_session_and_role():
         {"role": "system", "content": "x", "cli_session_id": "s1"},
     ]
     msgs = wm_events_to_chat_messages(events, "s1")
-    assert msgs == [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]
+    assert msgs == [
+        {"role": "user", "content": "a"},
+        {"role": "assistant", "content": "b"},
+    ]
 
 
 def test_wm_events_truncates_tail():
     events = [
-        {"role": "user", "content": str(i), "cli_session_id": "s"}
-        for i in range(50)
+        {"role": "user", "content": str(i), "cli_session_id": "s"} for i in range(50)
     ]
     msgs = wm_events_to_chat_messages(events, "s", max_messages=10)
     assert len(msgs) == 10

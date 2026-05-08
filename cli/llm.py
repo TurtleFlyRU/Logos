@@ -33,9 +33,7 @@ def _http_trust_env() -> bool:
 
 def llm_settings() -> tuple[str, str, str]:
     api_key = (
-        os.environ.get("LLM_API_KEY")
-        or os.environ.get("DEEPSEEK_API_KEY")
-        or ""
+        os.environ.get("LLM_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or ""
     ).strip()
     base = os.environ.get("LLM_BASE_URL", DEFAULT_BASE_URL).strip().rstrip("/")
     model = os.environ.get("LLM_MODEL", DEFAULT_MODEL).strip()

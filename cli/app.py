@@ -35,9 +35,8 @@ def _cmd_chat(args: argparse.Namespace) -> int:
         sess.touch_session(sid)
         sess.write_latest(sid)
     else:
-        sid = sess.read_latest()
-        if not sid:
-            sid = sess.new_session_id()
+        latest = sess.read_latest()
+        sid = latest if latest else sess.new_session_id()
         sess.touch_session(sid)
         memory.working.set_context("cli_session_id", sid)
         memory.working.set_context("cli_transport", "eidos")

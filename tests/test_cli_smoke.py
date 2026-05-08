@@ -9,8 +9,6 @@ import sys
 import uuid
 from pathlib import Path
 
-import pytest
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EIDOS = REPO_ROOT / "eidos.py"
 
