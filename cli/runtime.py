@@ -27,9 +27,9 @@ def run_chat_interactive(
 
     tags = ["cli", "eidos"]
     short = session_id[:8] + "…"
-    print(f"Сессия CLI {short} ({session_id}). Команды: /exit, /quit")
+    print(f"Сессия CLI {short} ({session_id}). Команды: /exit, /quit", flush=True)
     if stub or not use_llm:
-        print("[stub] Режим без вызова LLM (--stub).")
+        print("[stub] Режим без вызова LLM (--stub).", flush=True)
 
     while True:
         try:
@@ -70,16 +70,30 @@ def run_chat_interactive(
             ]
             messages.extend(hist)
             try:
+                print("[eidos] Запрос к модели…", flush=True)
                 reply = chat_completions(messages)
+                if not (reply or "").strip():
+                    print(
+                        "[eidos] Модель вернула пустой ответ. Проверьте LLM_MODEL "
+                        "и ответ API.",
+                        flush=True,
+                    )
+                    reply = None
             except LLMConfigError as exc:
-                print(exc, file=sys.stderr)
+                print(f"[eidos] {exc}", flush=True)
                 reply = None
             except httpx.HTTPError as exc:
-                print(f"HTTP ошибка: {exc}", file=sys.stderr)
+                print(f"[eidos] Ошибка HTTP: {exc}", flush=True)
+                reply = None
+            except OSError as exc:
+                print(f"[eidos] Сеть/ОС: {exc}", flush=True)
+                reply = None
+            except Exception as exc:
+                print(f"[eidos] Неожиданная ошибка: {exc}", flush=True)
                 reply = None
 
         if reply:
-            print(reply)
+            print(reply, flush=True)
             memory.working.add_event(
                 {
                     "role": "assistant",

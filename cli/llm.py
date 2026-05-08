@@ -49,7 +49,8 @@ def chat_completions(
 
     close_client = False
     if client is None:
-        client = httpx.Client(timeout=timeout)
+        timeout_cfg = httpx.Timeout(timeout, connect=min(30.0, timeout))
+        client = httpx.Client(timeout=timeout_cfg)
         close_client = True
     try:
         response = client.post(url, headers=headers, json=payload)
