@@ -142,7 +142,13 @@ def run_chat_interactive(
                     )
                     reply = None
             except KeyboardInterrupt:
-                print("\n[eidos] Запрос к модели прерван (Ctrl+C).", flush=True)
+                print("\n[eidos] Прервано (Ctrl+C): ответ от API ещё не получен.", flush=True)
+                print(
+                    "[eidos] Сообщение провайдера в терминале бывает только после полного "
+                    "ответа (HTTP 4xx/5xx и тело). Долгое ожидание без кода — это сеть или "
+                    "очередь у API; см. LLM_IGNORE_PROXY, LLM_TIMEOUT_SEC.",
+                    flush=True,
+                )
                 reply = None
             except LLMConfigError as exc:
                 print(f"[eidos] {exc}", flush=True)
@@ -204,7 +210,11 @@ def run_ask(question: str, *, use_llm: bool = True) -> int:
             print(f"[eidos] Ошибка HTTP: {exc}", flush=True)
             return 3
         except KeyboardInterrupt:
-            print("\n[eidos] Прервано.", flush=True)
+            print(
+                "\n[eidos] Прервано до ответа API — текст ошибки провайдера в этом случае "
+                "недоступен.",
+                flush=True,
+            )
             return 130
 
     print(f"[stub] {question}")
