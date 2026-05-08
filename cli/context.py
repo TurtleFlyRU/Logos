@@ -177,11 +177,13 @@ def chat_context_metrics(
     sys_text = ""
     if messages and isinstance(messages[0].get("content"), str):
         sys_text = str(messages[0]["content"])
-    has_active_memory = "Активное извлечение из памяти" in sys_text
-    has_boot_snippet = "Фрагмент сохранённого boot" in sys_text
-    has_principles = "Принципы" in sys_text or "— Принципы" in sys_text
-    has_attention = "Слоты внимания" in sys_text
-    has_identity = "Пользователь (CLI" in sys_text
+    # Важно: persona сама содержит слова вроде «Активное извлечение…», поэтому
+    # ищем заголовки реальных блоков, которые добавляются форматтерами ниже.
+    has_identity = "\n— Пользователь (CLI" in sys_text
+    has_attention = "\n— Слоты внимания (WM):" in sys_text
+    has_active_memory = "\n— Активное извлечение из памяти" in sys_text
+    has_boot_snippet = "\n— Фрагмент сохранённого boot-контекста" in sys_text
+    has_principles = "\n— Принципы:" in sys_text
 
     has_summary_block = any(
         (m.get("role") == "system")

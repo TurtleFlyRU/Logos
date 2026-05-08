@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cli.context import build_chat_messages_for_llm, estimate_messages_chars
+from cli.context import build_chat_messages_for_llm, chat_context_metrics, estimate_messages_chars
 
 
 class _Ep:
@@ -121,4 +121,25 @@ def test_layer_budget_drops_low_priority_blocks_first(monkeypatch):
     sys_text = msgs[0]["content"]
     assert "Ты Эйдос" in sys_text
     assert estimate_messages_chars(msgs) <= 2200
+
+
+def test_metrics_layers_not_triggered_by_persona(monkeypatch):
+    # persona содержит слова «Пользователь (CLI...)» и др., но слои должны считаться
+    # включёнными только если реально добавлены блоки с заголовком «— ...».
+    monkeypatch.setenv("EIDOS_CHAT_PRINCIPLES", "0")
+    monkeypatch.setenv("EIDOS_CHAT_BOOT_SNIPPET", "0")
+    monkeypatch.setenv("EIDOS_CHAT_ACTIVE_MEMORY", "0")
+    monkeypatch.setenv("EIDOS_CHAT_ATTENTION", "0")
+    monkeypatch.setenv("EIDOS_CHAT_USER_IDENTITY", "0")
+    monkeypatch.setenv("EIDOS_CHAT_MEMORY_PIPELINE", "episodic_only")
+
+    sid = "s"
+    mem = _make_mem([])
+    msgs = build_chat_messages_for_llm(mem, sid, user_message="hi")
+    m = chat_context_metrics(msgs, total_budget=0)
+    assert m["layers"]["identity"] is False
+    assert m["layers"]["attention"] is False
+    assert m["layers"]["active_memory"] is False
+    assert m["layers"]["boot_snippet"] is False
+    assert m["layers"]["principles"] is False
 
