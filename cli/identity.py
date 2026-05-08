@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import os
 from pathlib import Path
 from typing import Any
 
@@ -40,8 +41,12 @@ def seed_user_display_name_from_agents_md(memory: Any) -> None:
     except Exception:
         pass
 
-    repo_root = Path(__file__).resolve().parents[1]
-    p = repo_root / "AGENTS.md"
+    override = os.environ.get("EIDOS_CHAT_PERSONA_PATH", "").strip()
+    if override:
+        p = Path(override).expanduser().resolve()
+    else:
+        repo_root = Path(__file__).resolve().parents[1]
+        p = repo_root / "AGENTS.md"
     try:
         text = p.read_text(encoding="utf-8")
     except OSError:
@@ -49,7 +54,7 @@ def seed_user_display_name_from_agents_md(memory: Any) -> None:
 
     # Паттерн: "Работаю в паре с человеком (TurtleFlyRU, Александр)."
     m = re.search(
-        r"Работаю\s+в\s+паре\s+с\s+человеком\s*\\([^,)]{2,64},\\s*([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\\-]{1,48})\\)",
+        r"Работаю\s+в\s+паре\s+с\s+человеком\s*\([^,)]{2,64},\s*([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\-]{1,48})\)",
         text,
         re.I,
     )

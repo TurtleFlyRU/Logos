@@ -29,12 +29,9 @@ def test_try_capture_no_match():
 
 
 def test_seed_user_display_name_from_agents_md(tmp_path, monkeypatch):
-    # подменяем AGENTS.md в корне через monkeypatch cwd-подобным способом: пишем файл в repo root не можем,
-    # поэтому имитируем Memory.working и патчим Path.resolve().parents[1] нельзя без сложности.
-    # Тестируем через временную подстановку EIDOS_CHAT_PERSONA_PATH не получится — функция читает repo AGENTS.md.
-    #
-    # Упрощённо: проверяем, что функция НЕ падает, если AGENTS.md не читается,
-    # и НЕ затирает уже заданное имя.
+    # Проверяем два сценария:
+    # - не затирает уже заданное имя
+    # - может засидить имя из persona файла через EIDOS_CHAT_PERSONA_PATH
     from cli.identity import seed_user_display_name_from_agents_md
 
     mem = MagicMock()
@@ -42,3 +39,15 @@ def test_seed_user_display_name_from_agents_md(tmp_path, monkeypatch):
     mem.working.set_context = MagicMock()
     seed_user_display_name_from_agents_md(mem)
     mem.working.set_context.assert_not_called()
+
+    mem2 = MagicMock()
+    mem2.working.data = {"context": {}}
+    mem2.working.set_context = MagicMock()
+    persona = tmp_path / "AGENTS.md"
+    persona.write_text(
+        "Работаю в паре с человеком (TurtleFlyRU, Александр).",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("EIDOS_CHAT_PERSONA_PATH", str(persona))
+    seed_user_display_name_from_agents_md(mem2)
+    mem2.working.set_context.assert_called_once_with("user_display_name", "Александр")
