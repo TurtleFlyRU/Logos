@@ -215,7 +215,7 @@ cd logos-rs && cargo run -p eidos-cli -- chat --new
 - [x] История с tool-сообщениями после ответа
 - [x] Сборка на WSL: системные deps + IBUS — **описано** в [README desktop](../logos-rs/apps/eidos-desktop/README.md) (apt-пакеты, IME, запуск с Windows)
 - [x] Стриминг ответа (SSE + Tauri events; после tool round — replay чанками; дельты в DOM батчатся через rAF; во время tool round видны спиннер и «…»)
-- [x] Панель метрик контекста (кнопка «Контекст», sidecar `context_metrics`)
+- [x] Панель метрик контекста (кнопка «Контекст»): визуальный бюджет — сводка, шкалы по слоям, полный отчёт sidecar в `<details>`; боковая колонка шире в этом режиме
 - [x] CI: `.github/workflows/rust.yml` — `cargo test --workspace`
 - [x] Sleep из UI (`run_sleep` → `python3 eidos.py sleep`)
 - [x] Редактор `agents.yaml` в окне (валидация `AgentsConfig` перед записью; чтение как у рантайма; сохранение в `data/config/…` или `EIDOS_AGENTS_CONFIG` в пределах repo/data; после сохранения UI шапки через `refreshState`)
