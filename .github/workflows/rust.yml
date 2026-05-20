@@ -1,0 +1,27 @@
+name: Rust (logos-rs)
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "logos-rs/**"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    paths:
+      - "logos-rs/**"
+      - ".github/workflows/rust.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: logos-rs
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cargo test
+        run: cargo test --workspace

@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logos.local/schemas/wm-event.json",
+  "title": "WorkingMemoryEvent",
+  "description": "Одно событие в data/working/current.json → events[]",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "role": {
+      "type": "string",
+      "description": "user | assistant | tool | system"
+    },
+    "content": {
+      "type": ["string", "null"],
+      "description": "Текст реплики или результат инструмента"
+    },
+    "message": { "type": "string" },
+    "text": { "type": "string" },
+    "timestamp": {
+      "type": "number",
+      "description": "Unix time (секунды с дробной частью)"
+    },
+    "event_type": {
+      "type": "string",
+      "description": "cli_chat, respond, event, …"
+    },
+    "cli_session_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID сессии нативного CLI"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "tool_calls": {
+      "type": "array",
+      "description": "OpenAI-style tool_calls на assistant",
+      "items": { "$ref": "#/$defs/toolCall" }
+    },
+    "tool_call_id": {
+      "type": "string",
+      "description": "ID вызова для role=tool"
+    },
+    "tool": { "type": "string" },
+    "project": { "type": "string" }
+  },
+  "required": ["timestamp"],
+  "$defs": {
+    "toolCall": {
+      "type": "object",
+      "required": ["id", "type", "function"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "const": "function" },
+        "function": {
+          "type": "object",
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "type": "string" },
+            "arguments": {
+              "type": "string",
+              "description": "JSON object as string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

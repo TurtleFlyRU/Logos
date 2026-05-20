@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logos.local/schemas/episodic-episode.json",
+  "title": "EpisodicEpisode",
+  "description": "Строка таблицы episodes (SQLite) как объект для store/update",
+  "type": "object",
+  "properties": {
+    "id": { "type": "integer" },
+    "timestamp": { "type": "number" },
+    "session_id": { "type": ["string", "null"] },
+    "salience": { "type": "number", "minimum": 0, "maximum": 1 },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "summary": { "type": "string" },
+    "raw_text": { "type": "string" },
+    "compressed": { "type": "string" },
+    "linked_episodes": {
+      "type": "array",
+      "items": { "type": "integer" }
+    },
+    "context_keys": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "project": { "type": ["string", "null"] },
+    "task": { "type": ["string", "null"] },
+    "outcome": { "type": ["string", "null"] },
+    "tools": { "type": "array" },
+    "tools_used": { "type": "array" },
+    "valid_until": { "type": ["number", "null"] },
+    "access_count": { "type": "integer" },
+    "last_accessed_at": { "type": ["number", "null"] },
+    "archived_at": { "type": ["number", "null"] },
+    "forget_reason": { "type": ["string", "null"] },
+    "source": { "type": ["string", "null"] },
+    "source_id": { "type": ["string", "null"] }
+  },
+  "required": ["timestamp", "raw_text"]
+}

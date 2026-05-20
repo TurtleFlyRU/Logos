@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logos.local/schemas/openai-tool-spec.json",
+  "title": "OpenAIToolSpec",
+  "description": "Элемент массива tools в chat/completions (cli/tools.py builtin_tool_specs)",
+  "type": "object",
+  "required": ["type", "function"],
+  "properties": {
+    "type": { "const": "function" },
+    "function": {
+      "type": "object",
+      "required": ["name", "description", "parameters"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "parameters": {
+          "type": "object",
+          "description": "JSON Schema parameters object",
+          "properties": {
+            "type": { "const": "object" },
+            "properties": { "type": "object" },
+            "required": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

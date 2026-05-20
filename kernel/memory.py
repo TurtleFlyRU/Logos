@@ -65,6 +65,40 @@ def _flatten_context(value: Any) -> list[str]:
     return []
 
 
+def _sanitize_unicode_in_wm_event(event: dict[str, Any]) -> None:
+    """In-place: убирает lone-surrogates из строк, чтобы JSON/LLM/HTTP не падали.
+
+    Типичный сценарий: ответ API или инструмента с битым Unicode кладётся в WM и на
+    следующем ходе уходит обратно в ``messages`` — ошибка проявляется на 2-м–3-м вводе.
+    """
+    from kernel.utils import sanitize_unicode_text
+
+    def _fix(s: str) -> str:
+        return sanitize_unicode_text(s)
+
+    for key in ("content", "message", "text", "name"):
+        v = event.get(key)
+        if isinstance(v, str):
+            event[key] = _fix(v)
+    tid = event.get("tool_call_id")
+    if isinstance(tid, str):
+        event["tool_call_id"] = _fix(tid)
+    tcalls = event.get("tool_calls")
+    if isinstance(tcalls, list):
+        for call in tcalls:
+            if not isinstance(call, dict):
+                continue
+            cid = call.get("id")
+            if isinstance(cid, str):
+                call["id"] = _fix(cid)
+            fn = call.get("function")
+            if isinstance(fn, dict):
+                for fk in ("name", "arguments"):
+                    fv = fn.get(fk)
+                    if isinstance(fv, str):
+                        fn[fk] = _fix(fv)
+
+
 def _extract_context_keys(
     tags: list[str],
     summary: str = "",
@@ -171,6 +205,7 @@ class WorkingMemory:
         del slots[:-self.ATTENTION_SLOT_LIMIT]
 
     def add_event(self, event: dict[str, Any]) -> None:
+        _sanitize_unicode_in_wm_event(event)
         event["timestamp"] = time.time()
         self._data["events"].append(event)
         self._data["event_count"] = self._data.get("event_count", 0) + 1
@@ -210,6 +245,17 @@ class WorkingMemory:
                 )
             except Exception:
                 pass
+
+        # Публичный лог в дереве репо (log/cli), не в gitignored data/ — см. EIDOS_REPO_PUBLIC_LOG
+        try:
+            from kernel.repo_public_log import maybe_append_cli_public_log
+
+            maybe_append_cli_public_log(
+                event=event,
+                context=self._data.get("context", {}),
+            )
+        except Exception:
+            pass
 
         # Heartbeat: AgentPulse на каждое событие
         try:

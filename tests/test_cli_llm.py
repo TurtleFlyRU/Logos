@@ -7,7 +7,14 @@ import json
 import httpx
 import pytest
 
+from cli.agent_backends import LLMRuntimeParams
 from cli.llm import chat_completions, llm_settings
+
+
+@pytest.fixture(autouse=True)
+def _clear_agent_profile_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("EIDOS_AGENT_PROFILE", raising=False)
+    monkeypatch.delenv("EIDOS_AGENTS_CONFIG", raising=False)
 
 
 def test_llm_settings_env(monkeypatch):
@@ -71,3 +78,39 @@ def test_chat_completions_empty_choices_raises(monkeypatch):
 
     with pytest.raises(LLMConfigError):
         chat_completions([{"role": "user", "content": "x"}], client=client)
+
+
+def test_chat_completions_uses_explicit_runtime_params(monkeypatch):
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("EIDOS_AGENT_PROFILE", raising=False)
+
+    captured: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["url"] = str(request.url)
+        body = json.loads(request.content.decode())
+        captured["model"] = str(body["model"])
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "локально"}}]},
+        )
+
+    transport = httpx.MockTransport(handler)
+    client = httpx.Client(transport=transport)
+    runtime = LLMRuntimeParams(
+        api_key="",
+        base_url="http://127.0.0.1:11434/v1",
+        model="local-model",
+        read_timeout_sec=45.0,
+        omit_authorization_header=True,
+        profile_name="local",
+    )
+    text = chat_completions(
+        [{"role": "user", "content": "hi"}],
+        client=client,
+        runtime_params=runtime,
+    )
+    assert text == "локально"
+    assert captured["url"].startswith("http://127.0.0.1:11434/v1/chat/completions")
+    assert captured["model"] == "local-model"

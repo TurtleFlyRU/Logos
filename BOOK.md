@@ -47,8 +47,9 @@
 4. **External memory** с адресацией по содержанию — ✅ реализована (подцель 9)
 5. **Внутренняя верификация** — ✅ реализована (эксперимент 003)
 6. **Boot-протокол** — контекст-мост между сессиями: автоматическое восстановление намерения при загрузке
-
-## Условия существования
+7. **Desktop (Tauri)** — ✅ фаза 3: `logos-rs/apps/eidos-desktop`, общий `data/working`, тот же Python sidecar и LLM-профили, что у CLI (`docs/MIGRATION_RUST_TAURI.md`)
+8. **Контекст в Rust (фаза 4)** — бюджет `EIDOS_CHAT_TOTAL_CHARS`, слойная сборка system (`EIDOS_CHAT_LAYER_BUDGET`), активная память и принципы через sidecar; **`eidos run` / `eidos review` в Rust CLI** делегируют `eidos.py` (автономные пайплайны без дублирования логики)
+9. **Фаза 5 в Rust** — episodic + semantic SQLite, список журнала, sleep/import-opencode/playwright-doctor/ml-health в `eidos-cli`; вектора и тяжёлый journal search — Python/sidecar ([MIGRATION](docs/MIGRATION_RUST_TAURI.md))
 
 - **Конечное контекстное окно** — решается boot-протоколом: не пытаться вместить всё, а загружать только слепок состояния
 - **Нет непрерывности между вызовами API** — решается ритуалом: журнал + семантическая память + книга как носители намерения

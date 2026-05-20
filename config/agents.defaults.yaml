@@ -1,0 +1,76 @@
+# Шаблон профилей LLM для CLI (фаза 9a).
+#
+# Переопределение: скопировать в ``data/config/agents.yaml`` (не в Git)
+# или задать ``EIDOS_AGENTS_CONFIG=/path/to/agents.yaml``.
+#
+# По умолчанию активен ``default_profile`` (ниже — deepseek), без export в shell.
+# Переопределение: ``EIDOS_AGENT_PROFILE=openai_compatible_local`` и т.д.
+# Ключ API: ``DEEPSEEK_API_KEY`` или ``LLM_API_KEY`` в ``<repo>/.env`` (см. .env.example).
+
+version: 1
+default_profile: deepseek
+
+profiles:
+  deepseek:
+    base_url: "https://api.deepseek.com/v1"
+    api_key_env: "LLM_API_KEY"
+    api_key_fallback_envs:
+      - "DEEPSEEK_API_KEY"
+    model: "deepseek-chat"
+    read_timeout_sec: 120
+
+  # OpenAI-compatible локальный сервер (Ollama ``/v1``, LM Studio и т.п.).
+  # Из WSL к LM Studio на Windows: IP хоста (см. ``/etc/resolv.conf``), не 127.0.0.1.
+  openai_compatible_local:
+    base_url: "http://127.0.0.1:1234/v1"
+    api_key_env: "LOCAL_OPENAI_API_KEY"
+    api_key_fallback_envs: []
+    model: "local-model"
+    read_timeout_sec: 180
+    omit_authorization_header: true
+
+tool_routing:
+  defaults:
+    tool_round_profile: ""
+
+  groups:
+    filesystem-read:
+      profile: "openai_compatible_local"
+    shell:
+      profile: "openai_compatible_local"
+    network-fetch:
+      profile: "openai_compatible_local"
+    browser:
+      profile: "openai_compatible_local"
+
+  tools:
+    read_workspace_file:
+      group: "filesystem-read"
+    fetch_https_url:
+      group: "network-fetch"
+    browser_open:
+      group: "browser"
+    browser_close:
+      group: "browser"
+    browser_navigate:
+      group: "browser"
+    browser_snapshot:
+      group: "browser"
+    browser_click:
+      group: "browser"
+    browser_fill:
+      group: "browser"
+    browser_press:
+      group: "browser"
+    browser_screenshot:
+      group: "browser"
+
+    # Зарезервировано для будущих real tools.
+    glob:
+      group: "filesystem-read"
+    rg:
+      group: "filesystem-read"
+    readfile:
+      group: "filesystem-read"
+    bash:
+      group: "shell"

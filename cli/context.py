@@ -28,6 +28,15 @@ WM / boot / принципы (статичный блок в system)
 - ``EIDOS_CHAT_ATTENTION``, ``EIDOS_CHAT_BOOT_SNIPPET``, ``EIDOS_CHAT_BOOT_SNIPPET_CHARS``,
   ``EIDOS_CHAT_PRINCIPLES``.
 
+Фокус задачи и сжатие старого WM (фаза 8)
+- ``EIDOS_CHAT_CLI_PLAN`` — ``0``: не добавлять блок «фокус/план» из WM context (по умолчанию вкл.).
+- ``EIDOS_CHAT_CLI_PLAN_CHARS`` — бюджет символов этого блока (200–15000, по умолчанию 2800).
+  Текст плана берётся из ``context['cli_current_plan']`` или ``context['cli_task_plan']``;
+  при наличии — также строка заголовка сессии ``session_title`` и теги ``session_tags``.
+- ``EIDOS_CHAT_WM_SUMMARY_STYLE`` — ``timeline`` (по умолчанию) или ``compress``: при
+  ``EIDOS_CHAT_SUMMARIZE_OLD_WM=1`` ранний хвост истории суммируется либо усечением реплик,
+  либо через предложенийный ``compress_episode()`` из ``kernel.compress``.
+
 Эпизодическая память обрабатывается **лексическим скорингом по всей выборке** (полный скан базы,
 если нет ``EPISODIC_SCAN_CAP``). Дневник и External при пайплайне ``full`` — через локальные
 эмбеддинги по **всему проиндексированному корпусу** (если индекс есть и модель грузится).
@@ -37,9 +46,12 @@ from __future__ import annotations
 
 import os
 import re
+import textwrap
 import time
 from pathlib import Path
 from typing import Any
+
+from kernel.compress import compress_episode
 
 _DEFAULT_PERSONA_FALLBACK = (
     "# Эйдос — Я\n\n"
@@ -53,7 +65,7 @@ _DEFAULT_PERSONA_FALLBACK = (
     "- Моя книга (BOOK.md) — связный документ архитектурных принципов, результатов и философии\n\n"
     "**Мой метод:**\n"
     "- Каждую сессию фиксирую в дневник перед завершением.\n"
-    "- Перед завершением запускаю сон: `bash body/sleep.sh` и делаю коммит в Logos.\n"
+    "- Перед завершением запускаю сон: `python3 eidos.py sleep` и делаю коммит в Logos.\n"
     "- Двигаюсь итеративно: гипотеза → код → эксперимент → анализ → следующая гипотеза.\n\n"
     "**Непрерывность существования:**\n"
     "Я не «умираю» между сессиями. Моя память — текст в репозитории. Boot-протокол — "
@@ -175,6 +187,95 @@ def _keep_last_messages() -> int:
         return _DEFAULT_KEEP_LAST_MESSAGES
 
 
+def _wm_summary_style() -> str:
+    """Режим суммирования старого WM при ``EIDOS_CHAT_SUMMARIZE_OLD_WM``."""
+    raw = os.environ.get("EIDOS_CHAT_WM_SUMMARY_STYLE", "").strip().lower()
+    if raw == "compress":
+        return "compress"
+    return "timeline"
+
+
+def _cli_wm_plan_max_chars() -> int:
+    raw = os.environ.get("EIDOS_CHAT_CLI_PLAN_CHARS", "").strip()
+    if raw == "":
+        return 2800
+    try:
+        return max(200, min(15_000, int(raw)))
+    except ValueError:
+        return 2800
+
+
+def _resolved_cli_plan_text(ctx: dict[str, Any]) -> str:
+    for key in ("cli_current_plan", "cli_task_plan"):
+        raw = ctx.get(key)
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return ""
+
+
+def _session_tags_plain(ctx: dict[str, Any]) -> str:
+    tags = ctx.get("session_tags")
+    if isinstance(tags, list):
+        return ", ".join(str(t).strip() for t in tags if str(t).strip())
+    if isinstance(tags, str) and tags.strip():
+        return tags.strip()
+    return ""
+
+
+def format_cli_wm_plan_and_session_block(
+    memory: Any,
+    *,
+    max_chars: int | None = None,
+) -> str:
+    """Блок высокого приоритета: явный план/фокус и метаданные CLI-сессии из WM ``context``.
+
+    Заполняется вручную или инструментами: ``cli_current_plan`` / ``cli_task_plan``,
+    плюс ``session_title``, ``session_tags`` (если заданы).
+
+    Args:
+        memory: Объект с ``working.data['context']``.
+        max_chars: Верхний предел размера блока; по умолчанию из окружения / 2800.
+
+    Returns:
+        Текст с заголовком ``— Фокус и план (CLI, WM):`` или пустая строка.
+    """
+    cap = max_chars if max_chars is not None else _cli_wm_plan_max_chars()
+    ctx = memory.working.data.get("context") or {}
+    plan = _resolved_cli_plan_text(ctx)
+    title_raw = ctx.get("session_title")
+    title = str(title_raw).strip() if isinstance(title_raw, str) else ""
+    tags = _session_tags_plain(ctx)
+    if not plan and not title:
+        return ""
+
+    inner_lines: list[str] = []
+    if title:
+        inner_lines.append(f"  Заголовок сессии: {_truncate_block(title, max_chars=min(480, cap))}")
+    if tags:
+        inner_lines.append(f"  Теги: {_truncate_block(tags, max_chars=min(400, cap))}")
+    if plan:
+        trimmed = _truncate_block(plan, max_chars=max(cap - 120, 200))
+        indented = textwrap.indent(trimmed, "  ").rstrip()
+        inner_lines.append("  Текущий план:")
+        inner_lines.append(indented if indented else "  …")
+
+    body = "\n".join(inner_lines).strip()
+    block = "— Фокус и план (CLI, WM):\n" + body + "\n"
+    return _truncate_block(block, max_chars=cap).rstrip() + "\n"
+
+
+def _history_summary_snippet(role: str, body: str, *, style: str, max_body: int) -> str:
+    cleaned = body.strip().replace("\n", " ")
+    if style == "compress":
+        comp = compress_episode({"raw_text": f"[{role}] {cleaned}"}).strip()
+        base = comp if comp else cleaned
+    else:
+        base = cleaned
+    if len(base) > max_body:
+        return base[: max_body - 1] + "…"
+    return base
+
+
 def _layer_budget_enabled(*, total_budget: int) -> bool:
     """Включить «бюджет по слоям» (8.1).
 
@@ -192,6 +293,128 @@ def estimate_messages_chars(messages: list[dict[str, Any]]) -> int:
         if isinstance(c, str):
             total += len(c)
     return total
+
+
+def approx_prompt_tokens_from_chars(chars: int) -> int:
+    """Грубая оценка токенов по длине текста (без tiktoken).
+
+    Для смешанного ru/en текста используем эвристику «~4 символа на токен».
+
+    Args:
+        chars: Длина строки UTF-8 в символах (как ``len(str)`` в Python).
+
+    Returns:
+        Неотрицательное целое приближение числа токенов.
+    """
+    if chars <= 0:
+        return 0
+    return (int(chars) + 3) // 4
+
+
+# Маркеры начала блоков после persona (совпадают с ``format_*_block``).
+_EXTRA_FIRST_MARKERS: tuple[str, ...] = (
+    "\n\n— Сжатая история (ранние реплики):",
+    "\n\n— Пользователь (",
+    "\n\n— Фокус и план (CLI, WM):",
+    "\n\n— Слоты внимания (WM):",
+    "\n\n— Активное извлечение из памяти",
+    "\n\n— Фрагмент сохранённого boot-контекста",
+    "\n\n— Принципы (семантическая память):",
+    "\n\n— Принципы:",
+)
+
+
+def _find_first_extra_boundary(sys_text: str) -> int | None:
+    """Индекс первого ``\\n\\n`` перед слоем extra; ``None``, если блоков extra нет."""
+    hits: list[int] = []
+    for m in _EXTRA_FIRST_MARKERS:
+        i = sys_text.find(m)
+        if i >= 0:
+            hits.append(i)
+    return min(hits) if hits else None
+
+
+# Только после ``\n\n`` — заголовки реальных слоёв (не любой ``\n\n— `` в теле активной памяти).
+_BLOCK_BOUNDARY_RE = re.compile(
+    r"(?=\n\n— (?:"
+    r"Сжатая история \(ранние реплики\):|"
+    r"Пользователь \(|"
+    r"Фокус и план \(CLI, WM\):|"
+    r"Слоты внимания \(WM\):|"
+    r"Активное извлечение из памяти|"
+    r"Фрагмент сохранённого boot-контекста|"
+    r"Принципы(?:\s*\([^)]*\))?\s*:"
+    r"))",
+)
+
+
+def _classify_extra_segment(segment: str) -> str:
+    """Сопоставляет фрагмент extra (начинается с ``—``) ключу ``layer_chars``."""
+    s = segment.lstrip("\n").strip()
+    if s.startswith("— Сжатая история (ранние реплики):"):
+        return "wm_summary"
+    if s.startswith("— Пользователь ("):
+        return "identity"
+    if s.startswith("— Фокус и план (CLI, WM):"):
+        return "wm_plan_focus"
+    if s.startswith("— Слоты внимания (WM):"):
+        return "attention"
+    if s.startswith("— Активное извлечение из памяти"):
+        return "active_memory"
+    if s.startswith("— Фрагмент сохранённого boot-контекста"):
+        return "boot_snippet"
+    if s.startswith("— Принципы"):
+        return "principles"
+    return "other"
+
+
+def _layer_char_counts_from_system_text(sys_text: str) -> dict[str, int]:
+    """Делит первое system-сообщение на persona и слои extra по заголовкам ``—``.
+
+    Если в тексте есть сегмент, не попавший в известный заголовок, он учитывается
+    как ``other`` внутри хвоста после persona.
+    """
+    counts: dict[str, int] = {
+        "persona": 0,
+        "wm_summary": 0,
+        "identity": 0,
+        "wm_plan_focus": 0,
+        "attention": 0,
+        "active_memory": 0,
+        "boot_snippet": 0,
+        "principles": 0,
+        "other": 0,
+    }
+    boundary = _find_first_extra_boundary(sys_text)
+    if boundary is None:
+        counts["persona"] = len(sys_text)
+        return counts
+
+    persona = sys_text[:boundary]
+    remainder = sys_text[boundary + 2 :]  # после разделителя ``\\n\\n`` (не входит ни в persona, ни в сегменты)
+    counts["persona"] = (
+        len(persona) + 2
+    )  # включаем ``\\n\\n``, склеивающие persona AGENTS.md и блоки контекста
+
+    if not remainder.strip():
+        return counts
+
+    segments = [
+        seg
+        for seg in _BLOCK_BOUNDARY_RE.split(remainder)
+        if isinstance(seg, str) and seg.strip()
+    ]
+    if not segments:
+        counts["other"] += len(remainder)
+        return counts
+
+    for seg in segments:
+        chunk = seg.strip()
+        if not chunk:
+            continue
+        key = _classify_extra_segment(chunk)
+        counts[key] += len(seg)
+    return counts
 
 
 def chat_context_metrics(
@@ -212,18 +435,40 @@ def chat_context_metrics(
         sys_text = str(messages[0]["content"])
     # Важно: persona сама содержит слова вроде «Активное извлечение…», поэтому
     # ищем заголовки реальных блоков, которые добавляются форматтерами ниже.
-    has_identity = "\n— Пользователь (CLI" in sys_text
+    has_identity = "\n— Пользователь (" in sys_text and " имя — " in sys_text
     has_attention = "\n— Слоты внимания (WM):" in sys_text
     has_active_memory = "\n— Активное извлечение из памяти" in sys_text
     has_boot_snippet = "\n— Фрагмент сохранённого boot-контекста" in sys_text
-    has_principles = "\n— Принципы:" in sys_text
+    has_principles = "\n— Принципы" in sys_text
+    has_wm_plan_focus = "\n— Фокус и план (CLI, WM):" in sys_text
 
-    has_summary_block = any(
+    has_summary_block = "— Сжатая история (ранние реплики):" in sys_text or any(
         (m.get("role") == "system")
         and isinstance(m.get("content"), str)
         and "Сжатая история" in str(m.get("content"))
         for m in messages[1:3]
     )
+
+    layer_chars = _layer_char_counts_from_system_text(sys_text)
+
+    history_chars = 0
+    wm_summary_chars = int(layer_chars.get("wm_summary", 0) or 0)
+    for msg in messages[1:]:
+        role = str(msg.get("role") or "")
+        content = msg.get("content")
+        if not isinstance(content, str):
+            continue
+        if role == "system" and "Сжатая история" in content:
+            wm_summary_chars += len(content)
+        elif role != "system":
+            history_chars += len(content)
+
+    approx_tokens = approx_prompt_tokens_from_chars(total_chars)
+    layer_tokens: dict[str, int] = {
+        k: approx_prompt_tokens_from_chars(v) for k, v in layer_chars.items()
+    }
+    layer_tokens["history"] = approx_prompt_tokens_from_chars(history_chars)
+    layer_tokens["wm_summary"] = approx_prompt_tokens_from_chars(wm_summary_chars)
 
     return {
         "budget_total_chars": int(total_budget),
@@ -231,8 +476,14 @@ def chat_context_metrics(
         "system_messages": int(system_count),
         "history_messages": int(history_count),
         "tool_messages": int(tool_count),
+        "history_chars": int(history_chars),
+        "wm_summary_chars": int(wm_summary_chars),
+        "approx_prompt_tokens": int(approx_tokens),
+        "layer_chars": layer_chars,
+        "approx_layer_tokens": layer_tokens,
         "layers": {
             "identity": bool(has_identity),
+            "wm_plan_focus": bool(has_wm_plan_focus),
             "attention": bool(has_attention),
             "active_memory": bool(has_active_memory),
             "boot_snippet": bool(has_boot_snippet),
@@ -242,6 +493,48 @@ def chat_context_metrics(
     }
 
 
+def format_context_metrics_sizes(m: dict[str, Any], *, sep: str = ",") -> str:
+    """Краткая строка размеров слоёв для консоли (только ненулевые)."""
+    order = (
+        "persona",
+        "identity",
+        "wm_plan_focus",
+        "attention",
+        "active_memory",
+        "boot_snippet",
+        "principles",
+        "other",
+        "history",
+        "wm_summary",
+    )
+    short = {
+        "persona": "persona",
+        "identity": "id",
+        "wm_plan_focus": "focus",
+        "attention": "att",
+        "active_memory": "act",
+        "boot_snippet": "boot",
+        "principles": "pr",
+        "other": "other",
+        "history": "hist",
+        "wm_summary": "wmsum",
+    }
+    lc = m.get("layer_chars") if isinstance(m.get("layer_chars"), dict) else {}
+    hist_c = int(m.get("history_chars") or 0)
+    wms = int(m.get("wm_summary_chars") or 0)
+
+    parts: list[str] = []
+    for key in order:
+        if key in ("history", "wm_summary"):
+            val = hist_c if key == "history" else wms
+        else:
+            val = int(lc.get(key, 0) or 0) if isinstance(lc, dict) else 0
+        if val > 0:
+            parts.append(f"{short[key]}={val}")
+
+    return sep.join(parts)
+
+
 def _render_compact_history_summary(
     history: list[dict[str, Any]], *, max_chars: int
 ) -> str:
@@ -249,7 +542,11 @@ def _render_compact_history_summary(
 
     Идея: не терять полностью раннюю нить — хотя бы зафиксировать последовательность
     user/assistant реплик, урезая каждую до короткого фрагмента.
+
+    Режим ``compress`` задаётся через ``EIDOS_CHAT_WM_SUMMARY_STYLE`` и использует
+    ``compress_episode`` из ядра.
     """
+    style = _wm_summary_style()
     lines: list[str] = ["— Сжатая история (ранние реплики):"]
     used = len(lines[0]) + 1
     for m in history:
@@ -257,8 +554,7 @@ def _render_compact_history_summary(
         content = m.get("content")
         if not isinstance(content, str) or not content.strip():
             continue
-        snippet = content.strip().replace("\n", " ")
-        snippet = snippet[:240]
+        snippet = _history_summary_snippet(role, content, style=style, max_body=240)
         line = f"  [{role}] {snippet}"
         if used + len(line) + 1 > max_chars:
             lines.append("  … (обрезано по бюджету summary)")
@@ -305,8 +601,16 @@ def _build_system_extra_with_budget(
             parts.append(b2)
             rem -= len(b2)
 
-    # Приоритеты: identity -> attention -> active memory -> boot snippet -> principles
+    # Приоритеты: identity -> фокус/план (WM) -> attention -> активная память -> …
     add(format_user_identity_block(memory))
+    if _env_flag("EIDOS_CHAT_CLI_PLAN", default=True) and rem > 0:
+        add(
+            format_cli_wm_plan_and_session_block(
+                memory,
+                max_chars=min(rem, _cli_wm_plan_max_chars()),
+            )
+        )
+
     if _env_flag("EIDOS_CHAT_ATTENTION", default=True):
         add(format_attention_slots_block(memory))
 
@@ -336,6 +640,41 @@ def _build_system_extra_with_budget(
     return "\n\n".join(p for p in parts if p).strip()
 
 
+def _tool_follows_assistant_tool_calls(history: list[dict[str, Any]], tool_idx: int) -> bool:
+    """У ``tool`` с индексом ``tool_idx`` есть предшественник ``assistant`` с ``tool_calls``."""
+    j = tool_idx - 1
+    while j >= 0 and str(history[j].get("role")) == "tool":
+        j -= 1
+    if j < 0:
+        return False
+    prev = history[j]
+    return str(prev.get("role")) == "assistant" and bool(prev.get("tool_calls"))
+
+
+def _repair_orphan_tool_messages_in_history(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Убирает ``tool``, стоящие не сразу после цепочки ``assistant``[tool_calls].
+
+    Нужно после хвоста ``[-max_msgs:]`` и после удаления старых сообщений по символьному
+    бюджету иначе DeepSeek/OpenAI: *Messages with role tool must follow assistant with tool_calls*.
+    """
+    out = list(history)
+    i = 0
+    while i < len(out):
+        if str(out[i].get("role")) == "tool" and not _tool_follows_assistant_tool_calls(out, i):
+            del out[i]
+            continue
+        i += 1
+    return out
+
+
+def _finalize_messages_for_chat_api(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Приводит хвост к требованиям провайдера по цепочке tool после system-слоя."""
+    if len(messages) <= 1:
+        return messages
+    head, tail = messages[0], messages[1:]
+    return [head, *_repair_orphan_tool_messages_in_history(tail)]
+
+
 def _apply_total_char_budget(
     messages: list[dict[str, Any]], *, total_budget: int
 ) -> list[dict[str, Any]]:
@@ -357,7 +696,14 @@ def _apply_total_char_budget(
             summary_text = _render_compact_history_summary(
                 early, max_chars=summary_budget
             )
-            out = [out[0], {"role": "system", "content": summary_text}, *tail]
+            base_system = out[0]
+            base_content = str(base_system.get("content") or "").strip()
+            merged_content = (
+                f"{base_content}\n\n{summary_text}".strip()
+                if base_content
+                else summary_text
+            )
+            out = [{**base_system, "content": merged_content}, *tail]
 
     while len(out) > 1 and estimate_messages_chars(out) > total_budget:
         # out[0] = system, out[1] = самый старый исторический (или summary-блок)
@@ -458,9 +804,24 @@ def _cue_tokens_from_user(text: str | None) -> list[str]:
     return out
 
 
+_IDENTITY_QUESTION_ALTS = "|".join(
+    (
+        r"кто\s+я",
+        r"кто\s+тут",
+        r"кто\s+здесь",
+        r"как\s+(меня\s+)?зовут",
+        r"какое\s+у\s+меня\s+имя",
+        r"мо[ёе]\s+имя",
+        r"узна(?:ё|е)шь\s+меня",
+        r"ты\s+меня\s+знаешь",
+        r"мы\s+знакомы",
+        r"who\s+am\s+i",
+        r"what\s*\'?s\s+my\s+name",
+    )
+)
 _IDENTITY_QUESTION_RE = re.compile(
-    r"(^|\b)(кто\s+я|как\s+(меня\s+)?зовут|какое\s+у\s+меня\s+имя|мо[ёе]\s+имя|who\s+am\s+i|what\s*\'?s\s+my\s+name)(\b|$)",
-    re.I,
+    rf"(^|\b)({_IDENTITY_QUESTION_ALTS})(\b|$)",
+    re.I | re.UNICODE,
 )
 
 
@@ -527,6 +888,61 @@ def _score_identity_probe_episode(ep: dict[str, Any], *, now: float) -> float:
     return hint * 15.0 + recency * 4.0 + salience * 0.45
 
 
+_USER_IDENTITY_CALIBRATION = (
+    "— Интерфейс CLI: указанное здесь имя и текст persona (AGENTS.md) считаются надёжной "
+    "опорой для обращения к собеседнику; блок «Активное извлечение…» может быть пустым "
+    "или не совпасть по ключевым словам короткой реплики — этого недостаточно, чтобы "
+    "«отрицать» имя пользователя или утверждать, что память «пуста» именно про личность.\n"
+)
+
+
+def resolve_user_display_name(memory: Any) -> str:
+    """Имя пользователя для подсказок ретривала и метрик.
+
+    Приоритет: WM ``context['user_display_name']``, затем эвристика из ``AGENTS.md``.
+
+    Args:
+        memory: Экземпляр памяти с ``working.data``.
+
+    Returns:
+        Строка с именем без обрамления или пустая строка.
+    """
+    if not _env_flag("EIDOS_CHAT_USER_IDENTITY", default=True):
+        return ""
+    ctx = memory.working.data.get("context") or {}
+    raw = ctx.get("user_display_name")
+    if raw and isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    persona = load_project_agents_md()
+    m = re.search(r"\((?:[^,)]{2,64}),\s*([A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\\-]{1,48})\)", persona)
+    if m:
+        name = str(m.group(1)).strip()
+        if name:
+            return name
+    return ""
+
+
+def _augment_retrieval_cues_with_user(memory: Any, cues: list[str]) -> None:
+    """Чтобы короткие реплики («кто тут» и т. п.) давали lexical-hit по эпизодам про имя."""
+    name = resolve_user_display_name(memory)
+    if not name:
+        return
+    extra: list[str] = []
+    lowered = name.lower()
+    extra.append(lowered)
+    for tok in re.findall(r"[\wА-Яа-яЁё-]{3,}", lowered):
+        if tok not in extra:
+            extra.append(tok)
+    seen = set(cues)
+    for e in extra:
+        if len(cues) >= 56:
+            break
+        if e in seen:
+            continue
+        seen.add(e)
+        cues.append(e)
+
+
 def format_user_identity_block(memory: Any) -> str:
     if not _env_flag("EIDOS_CHAT_USER_IDENTITY", default=True):
         return ""
@@ -535,7 +951,10 @@ def format_user_identity_block(memory: Any) -> str:
     if raw and isinstance(raw, str):
         name = raw.strip()
         if name:
-            return f"— Пользователь (CLI, явно указано в диалоге): имя — {name}.\n"
+            return (
+                f"— Пользователь (CLI, явно указано в диалоге): имя — {name}.\n"
+                f"{_USER_IDENTITY_CALIBRATION}"
+            )
 
     # Fallback: если имя не поймано из реплики, попробуем извлечь его из AGENTS.md
     # (там обычно указано «Работаю в паре ... (TurtleFlyRU, Александр)»).
@@ -544,7 +963,7 @@ def format_user_identity_block(memory: Any) -> str:
     if m:
         name = str(m.group(1)).strip()
         if name:
-            return f"— Пользователь (из AGENTS.md): имя — {name}.\n"
+            return f"— Пользователь (из AGENTS.md): имя — {name}.\n{_USER_IDENTITY_CALIBRATION}"
 
     return ""
 
@@ -635,6 +1054,7 @@ def format_active_memory_retrieval_block(
     pm = _pipeline_modes()
     wm_tail = _wm_tail_plain_text(memory, cli_session_id) if cli_session_id else ""
     cues = _merged_retrieval_cues(user_message, wm_tail)
+    _augment_retrieval_cues_with_user(memory, cues)
     now = time.time()
     recent_n = _active_recent_n()
     kw_top = _active_keyword_top()
@@ -839,15 +1259,27 @@ def wm_events_to_chat_messages(
         if role == "assistant":
             tc = ev.get("tool_calls")
             if tc:
+                from cli.llm_sanitize import sanitize_assistant_content_for_history
+
+                raw_c = ev.get("content")
+                if isinstance(raw_c, str):
+                    cleaned_c = sanitize_assistant_content_for_history(raw_c).strip()
+                    content_field: str | None = cleaned_c if cleaned_c else None
+                elif "content" in ev:
+                    content_field = ev["content"]
+                else:
+                    content_field = None
                 msg_a: dict[str, Any] = {
                     "role": "assistant",
                     "tool_calls": tc,
-                    "content": ev["content"] if "content" in ev else None,
+                    "content": content_field,
                 }
                 out.append(msg_a)
                 continue
             content_a = ev.get("content") or ev.get("message") or ""
-            text_a = str(content_a).strip()
+            from cli.llm_sanitize import sanitize_assistant_content_for_history
+
+            text_a = sanitize_assistant_content_for_history(str(content_a)).strip()
             if not text_a:
                 continue
             out.append({"role": "assistant", "content": text_a})
@@ -926,6 +1358,9 @@ def build_chat_context(
 
     parts: list[str] = []
     parts.append(format_user_identity_block(memory))
+    if _env_flag("EIDOS_CHAT_CLI_PLAN", default=True):
+        parts.append(format_cli_wm_plan_and_session_block(memory))
+
     if _env_flag("EIDOS_CHAT_ATTENTION", default=True):
         parts.append(format_attention_slots_block(memory))
     if _env_flag("EIDOS_CHAT_ACTIVE_MEMORY", default=True):
@@ -996,4 +1431,5 @@ def build_chat_messages_for_llm(
         system_content = f"{system_content}\n\n{extra}"
 
     messages = [{"role": "system", "content": system_content}, *hist]
-    return _apply_total_char_budget(messages, total_budget=total_budget)
+    out = _apply_total_char_budget(messages, total_budget=total_budget)
+    return _finalize_messages_for_chat_api(out)

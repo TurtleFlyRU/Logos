@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logos.local/schemas/agents-config.json",
+  "title": "AgentsConfig",
+  "description": "data/config/agents.yaml и config/agents.defaults.yaml",
+  "type": "object",
+  "required": ["version", "profiles"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "default_profile": { "type": "string" },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/profile" }
+    },
+    "tool_routing": {
+      "type": "object",
+      "properties": {
+        "defaults": {
+          "type": "object",
+          "properties": {
+            "tool_round_profile": { "type": "string" }
+          }
+        },
+        "groups": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "profile": { "type": "string" }
+            }
+          }
+        },
+        "tools": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "group": { "type": "string" },
+              "profile": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "required": ["base_url", "model"],
+      "properties": {
+        "base_url": { "type": "string", "format": "uri" },
+        "api_key_env": { "type": "string" },
+        "api_key_fallback_envs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "model": { "type": "string" },
+        "read_timeout_sec": { "type": "number", "minimum": 5 },
+        "omit_authorization_header": { "type": "boolean", "default": false }
+      }
+    }
+  }
+}

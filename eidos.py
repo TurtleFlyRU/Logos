@@ -12,6 +12,9 @@ if str(_REPO_ROOT) not in sys.path:
 
 
 def main() -> int:
+    from kernel.config import load_repo_dotenv
+
+    load_repo_dotenv()
     from cli.app import main as app_main
 
     return app_main()

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 
 import pytest
 
@@ -33,7 +32,6 @@ def test_atomic_write_no_corruption_on_crash(wm):
     wm._data["events"].append({"msg": "hello"})
     wm._data["event_count"] = 1
     wm.save()
-    before = wm.path.read_text()
     # эмулируем частичную запись — не должна пережить rename
     wm._data["events"].append({"msg": "crash data"})
     wm._data["event_count"] = 2
@@ -55,6 +53,14 @@ def test_add_event_increments_count(wm):
     assert wm._data["event_count"] == 1
     assert len(wm._data["events"]) == 1
     assert "timestamp" in wm._data["events"][0]
+
+
+def test_add_event_sanitizes_surrogate_in_content(wm):
+    bad = "pre\udcd1post"
+    wm.add_event({"event_type": "test", "content": bad})
+    stored = wm._data["events"][0]["content"]
+    assert "\udcd1" not in stored
+    assert stored.startswith("pre") and stored.endswith("post")
 
 
 def test_add_event_multiple(wm):

@@ -1,0 +1,16 @@
+[package]
+name = "eidos-cli"
+description = "Headless Eidos CLI (parity with eidos.py)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "eidos"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+eidos-core = { path = "../eidos-core" }
+eidos-protocol = { path = "../eidos-protocol" }
+serde_json = { workspace = true }

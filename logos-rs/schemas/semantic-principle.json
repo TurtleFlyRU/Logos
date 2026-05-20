@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logos.local/schemas/semantic-principle.json",
+  "title": "SemanticPrinciple",
+  "description": "Строка таблицы principles (SQLite)",
+  "type": "object",
+  "properties": {
+    "id": { "type": "integer" },
+    "principle": { "type": "string" },
+    "source_episode_ids": {
+      "type": "array",
+      "items": { "type": "integer" }
+    },
+    "confidence": { "type": "number" },
+    "created_at": { "type": ["number", "null"] },
+    "updated_at": { "type": ["number", "null"] },
+    "last_retrieved_at": { "type": ["number", "null"] },
+    "retrieval_count": { "type": "integer" },
+    "success_count": { "type": "integer" },
+    "next_review_at": { "type": ["number", "null"] },
+    "decay": { "type": "number" }
+  },
+  "required": ["principle"]
+}

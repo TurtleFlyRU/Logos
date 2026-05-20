@@ -1,0 +1,20 @@
+[package]
+name = "eidos-core"
+description = "Eidos kernel logic (memory, config, llm) — no UI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+eidos-protocol = { path = "../eidos-protocol" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+thiserror = { workspace = true }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "stream"] }
+futures-util = "0.3"
+tokio = { version = "1", features = ["rt", "macros"] }
+dotenvy = "0.15"
+regex = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+uuid = { workspace = true }

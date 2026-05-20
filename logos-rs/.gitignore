@@ -1,0 +1,9 @@
+/target/
+/.cargo-home/
+
+# Node / Vite / Tauri frontend
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+.vite/

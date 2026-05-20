@@ -61,3 +61,26 @@ ALL_MINILM_MODEL_PATH = REPO_ROOT / "all-MiniLM-L6-v2"
 
 # experiments/* остаются в репозитории как исторические артефакты,
 # но ядро kernel/* не должно зависеть от них через sys.path.
+
+
+def load_repo_dotenv() -> None:
+    """Подставить переменные из ``<repo>/.env`` (не перезаписывает уже заданные в shell)."""
+    path = REPO_ROOT / ".env"
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        key = key.strip()
+        if not key or key in os.environ:
+            continue
+        val = val.strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
+            val = val[1:-1]
+        os.environ[key] = val

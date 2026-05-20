@@ -1,0 +1,14 @@
+[package]
+name = "eidos-lsp"
+description = "LSP server for Eidos (phase 6) — stub"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "eidos-lsp"
+path = "src/main.rs"
+
+[dependencies]
+eidos-core = { path = "../eidos-core" }
+eidos-protocol = { path = "../eidos-protocol" }

@@ -1,0 +1,22 @@
+[package]
+name = "eidos-desktop"
+version = "0.1.0"
+description = "Эйдос desktop (Tauri)"
+edition = "2021"
+
+[lib]
+name = "eidos_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+eidos-core = { path = "../../../crates/eidos-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tauri = { version = "2", features = [] }
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

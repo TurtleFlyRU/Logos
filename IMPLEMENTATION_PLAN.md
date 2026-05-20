@@ -103,6 +103,8 @@
 
 ## Фаза 7 — Укрепление ядра (убрать скрытые зависимости)
 
+**Статус: реализовано** (budget / verifier в ``kernel/``, без ``sys.path`` hacks к experiments).
+
 | Цель | Результат |
 |------|-----------|
 | Budget / verifier | Перенос модулей из `experiments/002-*`, `003-*` в `kernel/` (или `kernel/contrib/`) с нормальными импортами |
@@ -114,6 +116,16 @@
 ---
 
 ## Фаза 8 — Сборщик контекста с бюджетом
+
+**Статус: в основном реализовано** в ``cli/context.py`` и тестах ``tests/test_cli_context_budget.py``.
+
+Реализовано:
+- ``EIDOS_CHAT_TOTAL_CHARS``, слойная деградация (``EIDOS_CHAT_LAYER_BUDGET``), метрики CLI (в т.ч. размеры слоёв ``sizes=``, ``tok≈``).
+- Суммирование старого WM (опционально); стиль ``compress`` через ``kernel.compress.compress_episode`` (``EIDOS_CHAT_WM_SUMMARY_STYLE``).
+- Блок фокуса из WM: ``cli_current_plan`` / ``cli_task_plan``, заголовок и теги сессии (``EIDOS_CHAT_CLI_PLAN*``).
+- Инварианты: санитизация surrogate при записи WM и в outbound JSON; починка цепочек ``tool`` после усечения истории; корректный разбор слоёв в метриках.
+
+Опционально позже: усечение истории **целыми инструментальными раундами** при очень жёстком бюджете (см. разговор в сессии CLI).
 
 | Цель | Результат |
 |------|-----------|
@@ -129,9 +141,17 @@
 
 ### 9a. Реестр профилей и Agent Backend
 
+**Статус: каркас реализовано.**
+
+- Файл по умолчанию в репозитории: ``config/agents.defaults.yaml`` (локальные переопределения: ``data/config/agents.yaml`` или ``EIDOS_AGENTS_CONFIG`` — каталог ``data/`` в ``.gitignore``).
+- Окружение: ``EIDOS_AGENT_PROFILE``, опционально ``EIDOS_AGENTS_CONFIG``.
+- Код: ``cli/agent_backends.py`` (``get_llm_runtime_params``, YAML через PyYAML); ``cli/llm.py`` подставляет параметры и при необходимости **не** шлёт заголовок ``Authorization`` (локальные совместимые прокси).
+- CLI: ``eidos chat --agent-profile NAME``.
+- Тесты: ``tests/test_agent_backends.py``.
+
 | Цель | Результат |
 |------|-----------|
-| Конфиг профилей | `data/config/agents.yaml` (шаблон в репо), поля `base_url`, `api_key_env`, `model`, таймауты |
+| Конфиг профилей | Дефолты в `config/agents.defaults.yaml`; локально — `data/config/agents.yaml` или файл из `EIDOS_AGENTS_CONFIG`; поля `base_url`, `api_key_env`, `model`, таймауты |
 | Единый вызов | Модуль `cli/agent_backends.py`: по имени профиля выполняется OpenAI-compatible `chat/completions` |
 | Локальные модели | Профиль на `127.0.0.1` (Ollama / LM Studio / vLLM) без облака |
 | Тесты | Mock HTTP; два профиля в фикстурах — оба проходят один и тот же код backend’а |
@@ -139,6 +159,12 @@
 **Критерий готовности:** смена исполнителя с облака на локальный endpoint меняется только YAML + env, без правки кода пайплайна.
 
 ### 9b. Пайплайны research / experiment / code_review
+
+**Статус (MVP):** реализованы ``eidos run {research,experiment,code_review}``, ``eidos review``,
+пресеты ``cli/pipelines/presets.py``, оркестрация в ``cli/pipelines/runner.py``,
+``EIDOS_CODE_REVIEW_PROFILES`` для двух этапов ревью с разными профилями; тесты
+``tests/test_pipelines.py``, дымовые subprocess в ``tests/test_cli_smoke.py``.
+Опционально далее: пайплайн ``sleep``/pulse между этапами, параллельные рецензенты, ``experiment`` со своим циклом инструментов.
 
 | Цель | Результат |
 |------|-----------|
@@ -206,13 +232,13 @@ flowchart LR
   F7 -.-> F8
 ```
 
-Фазу 7 можно начинать параллельно с 5–6, но завершать до того, как бюджет контекста (8) станет сложным.
+Фазу 7 можно было начинать параллельно с 5–6 (выполнено).
 
 ---
 
 ## Что делать следующим шагом (конкретно)
 
-1. Фазы **1–6** закрыты (нативный boot без скрытого OpenCode; явный `import-opencode`; легаси `EIDOS_SYNC_OPENCODE`).
-2. Дальше: **Фаза 7** — ядро без скрытых зависимостей (`sys.path`, experiments).
-3. Затем **Фаза 8** — бюджет контекста.
+1. Фазы **1–8** закрыты или доведены до рабочего состояния CLI (см. статусы разделов выше).
+2. Углубить **9b**: явные вызовы AgentPulse/sleep после этапов, третий профиль для критиков, стриминг из фазы 10.
+3. Затем **фаза 10** (async/stream по необходимости).
 

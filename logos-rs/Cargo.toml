@@ -1,0 +1,22 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/eidos-protocol",
+    "crates/eidos-core",
+    "crates/eidos-cli",
+    "crates/eidos-lsp",
+    "apps/eidos-desktop/src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/TurtleFlyRU/Logos"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+clap = { version = "4", features = ["derive"] }
+uuid = { version = "1", features = ["v4"] }

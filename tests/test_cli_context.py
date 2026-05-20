@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from cli.context import (
     build_chat_messages_for_llm,
+    resolve_user_display_name,
     tools_allowed_for_chat_line,
     wm_events_to_chat_messages,
 )
@@ -35,6 +36,9 @@ def test_tools_allowed_for_chat_line_identity(monkeypatch):
     monkeypatch.delenv("EIDOS_CHAT_TOOLS_ON_IDENTITY", raising=False)
 
     assert tools_allowed_for_chat_line("кто я") is False
+    assert tools_allowed_for_chat_line("кто тут") is False
+    assert tools_allowed_for_chat_line("узнаешь меня") is False
+    assert tools_allowed_for_chat_line("кто ты") is True  # обычно про ассистента, не режем инструменты
     assert tools_allowed_for_chat_line("прочитай README.md и summary") is True
 
 
@@ -42,6 +46,18 @@ def test_tools_on_identity_env_overrides(monkeypatch):
     monkeypatch.setenv("EIDOS_CHAT_TOOLS_ON_IDENTITY", "1")
 
     assert tools_allowed_for_chat_line("кто я") is True
+
+
+def test_resolve_user_display_name_prefers_working(monkeypatch):
+    monkeypatch.delenv("EIDOS_CHAT_USER_IDENTITY", raising=False)
+
+    class _WM:
+        data = {"context": {"user_display_name": "Инна"}}
+
+    class _Mem:
+        working = _WM()
+
+    assert resolve_user_display_name(_Mem()) == "Инна"
 
 
 def test_wm_events_filters_session_and_role():

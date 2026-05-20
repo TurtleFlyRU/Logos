@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logos.local/schemas/working-memory.json",
+  "title": "WorkingMemoryDocument",
+  "description": "Файл data/working/current.json",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "session_id": { "type": ["string", "null"] },
+    "context": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "cli_session_id": { "type": "string" },
+        "cli_transport": { "type": "string", "enum": ["eidos", "opencode"] },
+        "session_title": { "type": "string" },
+        "session_tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "user_display_name": { "type": "string" },
+        "project": { "type": "string" }
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "./wm-event.json" }
+    },
+    "event_count": { "type": "integer", "minimum": 0 },
+    "attention_slots": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "timestamp": { "type": "number" },
+          "role": { "type": "string" },
+          "summary": { "type": "string" }
+        }
+      }
+    },
+    "suggestions": { "type": "array" }
+  },
+  "required": ["context", "events"]
+}

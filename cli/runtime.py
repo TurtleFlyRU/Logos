@@ -14,6 +14,18 @@ from cli.llm import LLMConfigError, chat_completions, format_llm_pending_banner
 
 if TYPE_CHECKING:
     from kernel.memory import Memory
+    from cli.tool_routing import ToolRoundRoute
+
+
+def _tool_names_from_specs(tool_specs: list[dict[str, Any]]) -> list[str]:
+    """Извлечь имена tool specs в формате chat/completions."""
+    names: list[str] = []
+    for spec in tool_specs:
+        fn = spec.get("function") or {}
+        name = str(fn.get("name") or "").strip()
+        if name:
+            names.append(name)
+    return names
 
 
 def _cli_chat_llm_reply(
@@ -23,6 +35,7 @@ def _cli_chat_llm_reply(
     messages: list[dict[str, Any]],
     *,
     allow_tools: bool = True,
+    tool_round_route: ToolRoundRoute | None = None,
 ) -> str | None:
     """Один пользовательский ход: опционально цикл tool_calls и финальный текст."""
     from cli.llm import chat_completion_assistant_message
@@ -50,9 +63,14 @@ def _cli_chat_llm_reply(
     max_r = max_tool_rounds()
     rounds = 0
     reply_text = ""
+    runtime_params = tool_round_route.runtime_params if tool_round_route is not None else None
     while rounds < max_r:
         rounds += 1
-        amsg = chat_completion_assistant_message(messages, tools=tool_specs)
+        amsg = chat_completion_assistant_message(
+            messages,
+            tools=tool_specs,
+            runtime_params=runtime_params,
+        )
         tcalls = amsg.get("tool_calls")
         if tcalls:
             memory.working.add_event(
@@ -153,11 +171,24 @@ def run_chat_interactive(
     show_metrics: bool = False,
 ) -> None:
     """Интерактивный цикл: WM + LLM, события помечены cli_session_id."""
+    from cli.budget_view import format_chat_budget_report
     from cli import session as sess
+    from cli.env_view import format_cli_env_report
+    from cli.pipelines.chat_commands import (
+        format_chat_pipeline_help,
+        parse_chat_pipeline_line,
+    )
+    from cli.pipelines.runner import run_pipeline_in_chat_session
 
     tags = ["cli", "eidos"]
     short = session_id[:8] + "…"
-    print(f"Сессия CLI {short} ({session_id}). Команды: /exit, /quit", flush=True)
+    print(
+        f"Сессия CLI {short} ({session_id}). Команды: /exit, /quit "
+        "| /env | /budget | /pipeline, /run, /review (см. /pipeline help)",
+        flush=True,
+    )
+    print(format_cli_env_report(show_unset=True), flush=True)
+    print(format_chat_budget_report(memory, session_id), flush=True)
     if stub or not use_llm:
         print("[stub] Режим без вызова LLM (--stub).", flush=True)
 
@@ -190,6 +221,62 @@ def run_chat_interactive(
         low = line.lower()
         if low in ("/exit", "/quit"):
             break
+        if low in ("/env", "/env all"):
+            print(format_cli_env_report(show_unset=True), flush=True)
+            continue
+        if low == "/env active":
+            print(format_cli_env_report(show_unset=False), flush=True)
+            continue
+        if low in ("/budget", "/budget now", "/budget all"):
+            print(format_chat_budget_report(memory, session_id), flush=True)
+            continue
+
+        pipe_parsed = parse_chat_pipeline_line(line)
+        if pipe_parsed == "help":
+            print(format_chat_pipeline_help(), flush=True)
+            continue
+        if isinstance(pipe_parsed, str):
+            print(pipe_parsed, flush=True)
+            continue
+        if pipe_parsed is not None:
+            try:
+                p_code, _assistant_blob = run_pipeline_in_chat_session(
+                    memory,
+                    session_id,
+                    pipe_parsed.name,
+                    pipe_parsed.topic,
+                    paths=tuple(pipe_parsed.paths),
+                    stub=stub or not use_llm,
+                )
+                sess.touch_session(session_id, last_turn_at=time.time())
+                if p_code != 0:
+                    print(
+                        f"[eidos] пайплайн завершился с кодом {p_code} (см. вывод выше).",
+                        flush=True,
+                    )
+            except KeyboardInterrupt:
+                print(
+                    "\n[eidos] Ctrl+C — пайплайн прерван (этап смотрите по строкам "
+                    "HTTP → / ← и сообщениям [pipeline:*] выше).",
+                    flush=True,
+                )
+            except LLMConfigError as exc:
+                print(f"[eidos] {exc}", flush=True)
+            except httpx.TimeoutException as exc:
+                print(
+                    f"[eidos] Таймаут запроса к API ({exc!s}) во время пайплайна. "
+                    "Проверьте сеть и LLM_BASE_URL.",
+                    flush=True,
+                )
+            except httpx.HTTPStatusError as exc:
+                _print_http_status_error(exc)
+            except httpx.HTTPError as exc:
+                print(f"[eidos] Ошибка HTTP в пайплайне: {exc}", flush=True)
+            except OSError as exc:
+                print(f"[eidos] Сеть/ОС в пайплайне: {exc}", flush=True)
+            except Exception as exc:
+                print(f"[eidos] Ошибка пайплайна: {exc}", flush=True)
+            continue
 
         try_capture_user_display_name(memory, line)
 
@@ -214,11 +301,12 @@ def run_chat_interactive(
                 user_message=line,
             )
             if show_metrics:
-                from cli.context import chat_context_metrics
+                from cli.context import chat_context_metrics, format_context_metrics_sizes
                 import os
 
                 raw = os.environ.get("EIDOS_CHAT_TOTAL_CHARS", "").strip()
                 total_budget = int(raw) if raw.isdigit() else 0
+
                 m = chat_context_metrics(messages, total_budget=total_budget)
                 ctx = memory.working.data.get("context") or {}
                 user_name = (
@@ -230,25 +318,64 @@ def run_chat_interactive(
                 layers_short = ",".join(
                     k
                     for k, v in layers.items()
-                    if v and k in ("identity", "attention", "active_memory", "boot_snippet", "principles", "wm_summary_block")
+                    if v
+                    and k
+                    in (
+                        "identity",
+                        "wm_plan_focus",
+                        "attention",
+                        "active_memory",
+                        "boot_snippet",
+                        "principles",
+                        "wm_summary_block",
+                    )
                 )
+                sizes = format_context_metrics_sizes(m)
                 print(
                     "[metrics] "
                     f"budget={m['budget_total_chars']} chars; "
                     f"payload={m['total_chars']} chars; "
+                    f"tok≈{m['approx_prompt_tokens']}; "
+                    f"sizes={sizes or '-'}; "
                     f"system={m['system_messages']}; hist={m['history_messages']} (tool={m['tool_messages']}); "
                     f"user={user_name or '-'}; "
                     f"layers={layers_short or '-'}",
                     flush=True,
                 )
             try:
-                print(format_llm_pending_banner(), flush=True)
+                tool_round_route = None
+                allow_tools = tools_allowed_for_chat_line(line)
+                if allow_tools:
+                    from cli.tool_routing import resolve_tool_round_route
+                    from cli.tools import builtin_tool_specs, progress_echo_enabled, tools_enabled
+
+                    if tools_enabled():
+                        tool_specs = builtin_tool_specs()
+                        tool_round_route = resolve_tool_round_route(
+                            _tool_names_from_specs(tool_specs)
+                        )
+                        if tool_round_route is not None and progress_echo_enabled():
+                            print(
+                                f"[eidos] route {tool_round_route.diagnostics}",
+                                flush=True,
+                            )
+
+                pending_runtime = (
+                    tool_round_route.runtime_params
+                    if tool_round_route is not None
+                    else None
+                )
+                print(
+                    format_llm_pending_banner(runtime_params=pending_runtime),
+                    flush=True,
+                )
                 reply = _cli_chat_llm_reply(
                     memory,
                     session_id,
                     tags,
                     messages,
-                    allow_tools=tools_allowed_for_chat_line(line),
+                    allow_tools=allow_tools,
+                    tool_round_route=tool_round_route,
                 )
                 if not (reply or "").strip():
                     print(
@@ -290,12 +417,13 @@ def run_chat_interactive(
 
         if show_metrics and (stub or not use_llm):
             # В stub-режиме тоже полезно видеть «что бы пошло в LLM».
-            from cli.context import chat_context_metrics
+            from cli.context import chat_context_metrics, format_context_metrics_sizes
             import os
 
             messages = build_chat_messages_for_llm(memory, session_id, user_message=line)
             raw = os.environ.get("EIDOS_CHAT_TOTAL_CHARS", "").strip()
             total_budget = int(raw) if raw.isdigit() else 0
+
             m = chat_context_metrics(messages, total_budget=total_budget)
             ctx = memory.working.data.get("context") or {}
             user_name = (
@@ -305,10 +433,13 @@ def run_chat_interactive(
             )
             layers = m["layers"]
             layers_short = ",".join(k for k, v in layers.items() if v)
+            sizes = format_context_metrics_sizes(m)
             print(
                 "[metrics] "
                 f"budget={m['budget_total_chars']} chars; "
                 f"payload={m['total_chars']} chars; "
+                f"tok≈{m['approx_prompt_tokens']}; "
+                f"sizes={sizes or '-'}; "
                 f"system={m['system_messages']}; hist={m['history_messages']} (tool={m['tool_messages']}); "
                 f"user={user_name or '-'}; "
                 f"layers={layers_short or '-'}",
