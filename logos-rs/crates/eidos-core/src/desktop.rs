@@ -4,6 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use eidos_protocol::agents::AgentsConfig;
 use eidos_protocol::working::WmEvent;
 use serde::{Deserialize, Serialize};
 
@@ -367,8 +368,11 @@ impl DesktopRuntime {
 
     /// Атомарно записать конфигурацию (цель — `data/config/agents.yaml` или `EIDOS_AGENTS_CONFIG`).
     ///
-    /// Чтобы подхватить профиль без перезапуска приложения, сейчас нет hot-reload — перезапустите desktop или смените сессию после правки при необходимости.
+    /// Перед записью YAML проверяется как `AgentsConfig`. Параметры LLM для чата читаются с диска на каждый ход (кэша нет).
     pub fn write_agents_config_file(&self, content: &str) -> Result<()> {
+        let _: AgentsConfig = serde_yaml::from_str(content).map_err(|e| {
+            CoreError::WorkingMemory(format!("agents.yaml: невалидная структура: {e}"))
+        })?;
         let save_target = agents_yaml_save_path(&self.paths)?;
         assert_save_parent_allowed(&self.paths, &save_target)?;
         if let Some(parent) = save_target.parent() {

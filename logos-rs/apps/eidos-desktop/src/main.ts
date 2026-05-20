@@ -593,8 +593,9 @@ btnAgentsSave.onclick = async () => {
   try {
     await invoke("save_agents_config", { content: agentsEditor.value });
     appendStatus(
-      "[eidos] agents.yaml сохранён. Для подхвата профиля перезапустите desktop или откройте редактор снова после смены env.",
+      "[eidos] agents.yaml сохранён. Параметры LLM подхватываются с диска на следующий запрос; шапка обновлена.",
     );
+    await refreshState();
     await openAgentsEditor();
   } catch (e) {
     appendStatus(`Сохранение agents: ${e}`);
