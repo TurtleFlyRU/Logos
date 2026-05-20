@@ -8,7 +8,7 @@ use eidos_core::{
     SendMessageResult, SessionRecord, SettingsDto, SleepResult,
 };
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 struct AppState {
     runtime: DesktopRuntime,
@@ -121,31 +121,36 @@ fn send_message(
     state: State<Mutex<AppState>>,
     text: String,
 ) -> Result<(), String> {
-    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    let session_id = {
+        let guard = state.lock().map_err(|e| e.to_string())?;
+        guard.runtime.session_id.clone()
+    };
     let emitter = Arc::new(StreamEmitter {
         app: app.clone(),
-        session_id: guard.runtime.session_id.clone(),
+        session_id,
     });
     emitter.emit_start();
 
-    let em = Arc::clone(&emitter);
-    let on_delta: Box<dyn FnMut(&str) + Send> =
-        Box::new(move |delta: &str| em.emit_delta(delta));
-    let result = guard
-        .runtime
-        .send_message(text, Some(on_delta))
-        .map_err(|e| e.to_string());
+    let app_bg = app.clone();
+    std::thread::spawn(move || {
+        let outcome = (|| -> Result<SendMessageResult, String> {
+            let state = app_bg.state::<Mutex<AppState>>();
+            let mut guard = state.lock().map_err(|e| e.to_string())?;
+            let em = Arc::clone(&emitter);
+            let on_delta: Box<dyn FnMut(&str) + Send> =
+                Box::new(move |delta: &str| em.emit_delta(delta));
+            guard
+                .runtime
+                .send_message(text, Some(on_delta))
+                .map_err(|e| e.to_string())
+        })();
+        match outcome {
+            Ok(res) => emitter.emit_end(res),
+            Err(e) => emitter.emit_error(e),
+        }
+    });
 
-    match result {
-        Ok(res) => {
-            emitter.emit_end(res);
-            Ok(())
-        }
-        Err(e) => {
-            emitter.emit_error(e.clone());
-            Err(e)
-        }
-    }
+    Ok(())
 }
 
 #[tauri::command]

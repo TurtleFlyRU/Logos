@@ -55,6 +55,26 @@ interface SettingsDto {
   sidecar_disabled: boolean;
 }
 
+/** Элемент списка slash-подсказок в поле чата. */
+interface SlashCommandItem {
+  cmd: string;
+  desc: string;
+}
+
+const LS_KEY_SLASH_HINTS = "eidosDesktop.slashHints";
+
+const SLASH_COMMANDS: SlashCommandItem[] = [
+  { cmd: "/budget", desc: "Визуальный бюджет контекста" },
+  { cmd: "/env", desc: "Все переменные окружения" },
+  { cmd: "/env active", desc: "Только активные EIDOS_*" },
+  { cmd: "/env all", desc: "Алиас полного отчёта env" },
+  { cmd: "/options", desc: "Панель опций и сводка настроек" },
+  { cmd: "/pipeline", desc: "Справка по пайплайнам" },
+  { cmd: "/pipeline help", desc: "То же, что /pipeline" },
+  { cmd: "/review", desc: "Пайплайн review (как в CLI)" },
+  { cmd: "/run", desc: "Пайплайн run (как в CLI)" },
+];
+
 interface SleepResult {
   output: string;
   exit_code: number;
@@ -73,12 +93,19 @@ interface ContextMetricsDto {
   budget_report: string;
 }
 
+/** Меняйте при правках UI — по метке в шапке видно, подхватился ли свежий фронт. */
+const UI_BUILD_ID = "send-ui-20250520f";
+
+const INPUT_PLACEHOLDER_IDLE =
+  "Сообщение… (/options, /pipeline, /run, /review)";
+
 const app = document.getElementById("app")!;
 
 app.innerHTML = `
   <header>
     <h1>Эйдос</h1>
     <span class="meta" id="meta">…</span>
+    <span class="ui-build-tag" id="ui-build-tag" title="Версия веб-UI (если не совпадает — перезапустите npm run tauri dev)"></span>
     <button type="button" id="btn-env" title="Переменные окружения">Env</button>
     <button type="button" id="btn-budget" title="Метрики слоёв и бюджет">Контекст</button>
     <button type="button" id="btn-pipelines" title="Справка /pipeline">Пайплайны</button>
@@ -94,7 +121,6 @@ app.innerHTML = `
   </aside>
   <main class="chat-panel">
     <div id="messages"></div>
-    <div id="loading" class="loading hidden">Запрос к модели…</div>
   </main>
   <aside class="context-panel hidden" id="context-panel">
     <div class="context-head">
@@ -115,25 +141,56 @@ app.innerHTML = `
       <button type="button" id="btn-agents-reload">Перечитать</button>
     </div>
   </aside>
+  <aside class="context-panel options-panel hidden" id="options-panel">
+    <div class="context-head">
+      <h2>Опции</h2>
+      <button type="button" id="btn-options-close" aria-label="Закрыть">×</button>
+    </div>
+    <div class="options-body">
+      <section class="options-section">
+        <label class="options-check">
+          <input type="checkbox" id="opt-slash-hints" checked />
+          Подсказки при вводе <kbd>/</kbd>
+        </label>
+        <p class="options-note">
+          Сохраняется локально в WebView. Переменные <code>EIDOS_*</code> для процесса Rust чаще всего
+          применяются только после перезапуска приложения.
+        </p>
+      </section>
+      <section class="options-section">
+        <h3 class="options-section-title">Сводка настроек</h3>
+        <pre id="options-settings-pre" class="options-settings-pre"></pre>
+      </section>
+      <section class="options-actions">
+        <button type="button" id="btn-options-open-settings">Настройки (полная панель)</button>
+        <button type="button" id="btn-options-open-agents">agents.yaml</button>
+      </section>
+    </div>
+  </aside>
   <footer>
-    <textarea
-      id="input"
-      rows="2"
-      lang="ru"
-      autocapitalize="off"
-      autocomplete="off"
-      spellcheck="true"
-      placeholder="Сообщение… (/pipeline, /run, /review)"
-    ></textarea>
+    <div class="input-wrap">
+      <ul id="slash-hint" class="slash-hint hidden" role="listbox" aria-label="Slash-команды"></ul>
+      <textarea
+        id="input"
+        rows="2"
+        lang="ru"
+        autocapitalize="off"
+        autocomplete="off"
+        spellcheck="true"
+        placeholder="${INPUT_PLACEHOLDER_IDLE}"
+      ></textarea>
+    </div>
     <button type="button" id="btn-send">Отправить</button>
   </footer>
   <p class="ime-hint" id="ime-hint"></p>
 `;
 
 const metaEl = document.getElementById("meta")!;
+const uiBuildTagEl = document.getElementById("ui-build-tag")!;
+uiBuildTagEl.textContent = UI_BUILD_ID;
+console.info(`[eidos-desktop] UI ${UI_BUILD_ID}`);
 const sessionsEl = document.getElementById("sessions")!;
 const messagesEl = document.getElementById("messages")!;
-const loadingEl = document.getElementById("loading")!;
 const inputEl = document.getElementById("input") as HTMLTextAreaElement;
 const btnSend = document.getElementById("btn-send") as HTMLButtonElement;
 const btnBoot = document.getElementById("btn-boot") as HTMLButtonElement;
@@ -154,13 +211,26 @@ const agentsEditor = document.getElementById("agents-editor") as HTMLTextAreaEle
 const btnAgentsClose = document.getElementById("btn-agents-close")!;
 const btnAgentsSave = document.getElementById("btn-agents-save")!;
 const btnAgentsReload = document.getElementById("btn-agents-reload")!;
+const slashHintEl = document.getElementById("slash-hint")!;
+const optionsPanel = document.getElementById("options-panel")!;
+const btnOptionsClose = document.getElementById("btn-options-close")!;
+const optSlashHints = document.getElementById("opt-slash-hints") as HTMLInputElement;
+const optionsSettingsPre = document.getElementById("options-settings-pre") as HTMLPreElement;
+const btnOptionsOpenSettings = document.getElementById("btn-options-open-settings")!;
+const btnOptionsOpenAgents = document.getElementById("btn-options-open-agents")!;
 
 let currentSession = "";
 let composing = false;
+/** После Enter держим поле пустым (IME/WebKit на WSL иногда возвращает текст). */
+let holdInputClear = false;
 let streamAssistantEl: HTMLDivElement | null = null;
 let streamText = "";
 /** Очередь отрисовки дельт: не чаще одного кадра (меньше нагрузки на WebKit/WSL). */
 let streamFlushRafId: number | null = null;
+/** Сигнатура текущего отфильтрованного списка slash-команд (сброс выделения при смене). */
+let slashFilterSig = "";
+let slashFiltered: SlashCommandItem[] = [];
+let slashSelectedIndex = 0;
 
 interface ChatStreamDeltaPayload {
   session_id: string;
@@ -179,6 +249,7 @@ interface AgentsEditorState {
 }
 
 function showContext(title: string, body: string) {
+  hideOptionsPanel();
   hideAgentsPanel();
   app.classList.remove("context-budget-wide");
   contextTitle.textContent = title;
@@ -199,7 +270,96 @@ function hideAgentsPanel() {
   app.classList.remove("agents-open");
 }
 
+function hideOptionsPanel() {
+  optionsPanel.classList.add("hidden");
+  app.classList.remove("options-open");
+}
+
+function slashHintsEnabled(): boolean {
+  return localStorage.getItem(LS_KEY_SLASH_HINTS) !== "0";
+}
+
+function getCurrentLineInfo(): { lineStart: number; lineEnd: number; lineText: string } {
+  const v = inputEl.value;
+  const pos = Math.min(inputEl.selectionStart, v.length);
+  const lineStart = v.lastIndexOf("\n", pos - 1) + 1;
+  let lineEnd = v.indexOf("\n", pos);
+  if (lineEnd === -1) {
+    lineEnd = v.length;
+  }
+  return { lineStart, lineEnd, lineText: v.slice(lineStart, lineEnd) };
+}
+
+function hideSlashHint() {
+  slashHintEl.classList.add("hidden");
+  slashFiltered = [];
+  slashFilterSig = "";
+}
+
+function renderSlashHint(items: SlashCommandItem[], selected: number) {
+  slashHintEl.replaceChildren();
+  for (let i = 0; i < items.length; i++) {
+    const li = document.createElement("li");
+    li.setAttribute("role", "option");
+    if (i === selected) {
+      li.classList.add("active");
+      li.setAttribute("aria-selected", "true");
+    } else {
+      li.setAttribute("aria-selected", "false");
+    }
+    const cmdSpan = document.createElement("span");
+    cmdSpan.className = "slash-cmd";
+    cmdSpan.textContent = items[i].cmd;
+    const descSpan = document.createElement("span");
+    descSpan.className = "slash-desc";
+    descSpan.textContent = items[i].desc;
+    li.append(cmdSpan, descSpan);
+    li.addEventListener("mousedown", (e) => {
+      e.preventDefault();
+      applySlashCommand(items[i].cmd);
+      hideSlashHint();
+    });
+    slashHintEl.appendChild(li);
+  }
+}
+
+function applySlashCommand(cmd: string) {
+  const { lineStart, lineEnd } = getCurrentLineInfo();
+  const v = inputEl.value;
+  inputEl.value = `${v.slice(0, lineStart)}${cmd}${v.slice(lineEnd)}`;
+  const newPos = lineStart + cmd.length;
+  inputEl.setSelectionRange(newPos, newPos);
+}
+
+function updateSlashHintFromInput() {
+  if (!slashHintsEnabled()) {
+    hideSlashHint();
+    return;
+  }
+  const { lineText } = getCurrentLineInfo();
+  if (!lineText.startsWith("/")) {
+    hideSlashHint();
+    return;
+  }
+  const q = lineText.toLowerCase();
+  slashFiltered = SLASH_COMMANDS.filter((c) => c.cmd.toLowerCase().startsWith(q));
+  if (slashFiltered.length === 0) {
+    hideSlashHint();
+    return;
+  }
+  const sig = slashFiltered.map((c) => c.cmd).join("\n");
+  if (sig !== slashFilterSig) {
+    slashFilterSig = sig;
+    slashSelectedIndex = 0;
+  } else {
+    slashSelectedIndex = Math.min(slashSelectedIndex, slashFiltered.length - 1);
+  }
+  slashHintEl.classList.remove("hidden");
+  renderSlashHint(slashFiltered, slashSelectedIndex);
+}
+
 async function openAgentsEditor() {
+  hideOptionsPanel();
   hideContext();
   try {
     const st = await invoke<AgentsEditorState>("get_agents_editor_state");
@@ -213,9 +373,89 @@ async function openAgentsEditor() {
 }
 
 function setLoading(on: boolean) {
-  loadingEl.classList.toggle("hidden", !on);
   btnSend.disabled = on;
-  inputEl.disabled = on;
+  inputEl.readOnly = on;
+  inputEl.setAttribute("aria-busy", on ? "true" : "false");
+  inputEl.placeholder = on ? "Ожидание ответа…" : INPUT_PLACEHOLDER_IDLE;
+  if (!on) {
+    holdInputClear = false;
+  }
+}
+
+function clearInputField() {
+  inputEl.value = "";
+  inputEl.defaultValue = "";
+}
+
+/** Принудительный layout/reflow перед долгим invoke (WebKitGTK иначе не рисует DOM). */
+function flushLayout(): void {
+  void messagesEl.offsetHeight;
+}
+
+function delayMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Сразу после Enter: очистить поле, показать свой пузырь и под ним спиннер (без await).
+ */
+function commitOutgoingChatUi(text: string) {
+  holdInputClear = true;
+  clearInputField();
+  appendUserBubble(text);
+  showThinkingBubble();
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function setChatPending(on: boolean) {
+  app.classList.toggle("chat-pending", on);
+}
+
+function clearThinkingBubblePending() {
+  if (!streamAssistantEl) return;
+  streamAssistantEl.querySelector(".stream-pending")?.remove();
+}
+
+/** Пузырь ассистента с индикатором — один блок в ленте, под сообщением user. */
+function showThinkingBubble() {
+  if (streamAssistantEl) return;
+  cancelStreamDomFlush();
+  streamText = "";
+  streamAssistantEl = document.createElement("div");
+  streamAssistantEl.className = "msg assistant streaming";
+
+  const pending = document.createElement("div");
+  pending.className = "stream-pending";
+
+  const loader = document.createElement("div");
+  loader.className = "loader";
+  loader.setAttribute("aria-hidden", "true");
+  pending.appendChild(loader);
+
+  const label = document.createElement("span");
+  label.className = "stream-pending-label";
+  label.textContent = "Думаю";
+  pending.appendChild(label);
+
+  streamAssistantEl.appendChild(pending);
+  messagesEl.appendChild(streamAssistantEl);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+function endChatPendingUi() {
+  setChatPending(false);
+  setLoading(false);
+}
+
+/** Дать WebKit отрисовать индикатор до блокирующего `invoke` (иначе кажется «зависание»). */
+function yieldForPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        resolve();
+      });
+    });
+  });
 }
 
 function setupInput() {
@@ -228,20 +468,67 @@ function setupInput() {
   });
   inputEl.addEventListener("compositionend", () => {
     composing = false;
+    if (holdInputClear) {
+      clearInputField();
+    }
+  });
+
+  inputEl.addEventListener("input", () => {
+    if (holdInputClear && inputEl.value.length > 0) {
+      clearInputField();
+    }
+    updateSlashHintFromInput();
   });
 
   inputEl.addEventListener("keydown", (ev) => {
     if (composing || ev.isComposing || ev.keyCode === 229) return;
-    if (ev.key === "Enter" && !ev.shiftKey) {
+
+    const hintVisible =
+      !slashHintEl.classList.contains("hidden") && slashFiltered.length > 0;
+
+    if (ev.key === "Escape" && hintVisible) {
       ev.preventDefault();
-      void send();
+      hideSlashHint();
+      return;
+    }
+
+    if (hintVisible && (ev.key === "ArrowDown" || ev.key === "ArrowUp")) {
+      ev.preventDefault();
+      if (ev.key === "ArrowDown") {
+        slashSelectedIndex = (slashSelectedIndex + 1) % slashFiltered.length;
+      } else {
+        slashSelectedIndex =
+          (slashSelectedIndex - 1 + slashFiltered.length) % slashFiltered.length;
+      }
+      renderSlashHint(slashFiltered, slashSelectedIndex);
+      return;
+    }
+
+    if (ev.key === "Tab" && hintVisible) {
+      ev.preventDefault();
+      applySlashCommand(slashFiltered[slashSelectedIndex].cmd);
+      hideSlashHint();
+      return;
+    }
+
+    if (ev.key === "Enter" && !ev.shiftKey) {
+      if (hintVisible) {
+        ev.preventDefault();
+        applySlashCommand(slashFiltered[slashSelectedIndex].cmd);
+        hideSlashHint();
+        return;
+      }
+      ev.preventDefault();
+      const text = inputEl.value.trim();
+      if (!text) return;
+      void submitChatMessage(text);
     }
   });
 
   const hint = document.getElementById("ime-hint");
   if (hint) {
     hint.textContent =
-      "Enter — отправить · Shift+Enter — новая строка · в чате работают /pipeline, /run, /review как в CLI";
+      "Enter — отправить · Shift+Enter — новая строка · / — подсказки команд · в чате /pipeline, /run, /review как в CLI";
   }
 }
 
@@ -281,6 +568,7 @@ function cancelStreamDomFlush() {
 
 function flushStreamDomNow() {
   if (!streamAssistantEl) return;
+  clearThinkingBubblePending();
   streamAssistantEl.textContent = streamText;
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
@@ -294,13 +582,7 @@ function scheduleStreamDomFlush() {
 }
 
 function beginAssistantStream() {
-  cancelStreamDomFlush();
-  streamText = "";
-  streamAssistantEl = document.createElement("div");
-  streamAssistantEl.className = "msg assistant streaming";
-  streamAssistantEl.textContent = "";
-  messagesEl.appendChild(streamAssistantEl);
-  streamAssistantEl.textContent = "…";
+  showThinkingBubble();
 }
 
 function setupChatStreamListeners() {
@@ -312,8 +594,8 @@ function setupChatStreamListeners() {
   void listen<ChatStreamDeltaPayload>("chat-stream-delta", (ev) => {
     if (ev.payload.session_id !== currentSession) return;
     if (streamAssistantEl && streamText.length === 0 && ev.payload.delta.length > 0) {
-      streamAssistantEl.textContent = "";
-      loadingEl.classList.add("hidden");
+      setChatPending(false);
+      setLoading(false);
     }
     streamText += ev.payload.delta;
     scheduleStreamDomFlush();
@@ -324,17 +606,19 @@ function setupChatStreamListeners() {
     cancelStreamDomFlush();
     streamAssistantEl = null;
     const res = ev.payload.result;
+    endChatPendingUi();
     await refreshState();
-    loadingEl.classList.add("hidden");
     if (res.llm_status) appendStatus(res.llm_status);
     if (res.status_warning) appendStatus(res.status_warning);
     if (res.pipeline_text) appendStatus(res.pipeline_text);
+    inputEl.focus();
   });
 
   void listen<{ session_id: string; message: string }>("chat-stream-error", (ev) => {
     if (ev.payload.session_id !== currentSession) return;
     cancelStreamDomFlush();
     streamAssistantEl = null;
+    endChatPendingUi();
     appendStatus(`Ошибка: ${ev.payload.message}`);
   });
 }
@@ -394,24 +678,36 @@ async function send() {
     showContext("Пайплайны", body);
     return;
   }
+  if (low === "/options") {
+    inputEl.value = "";
+    await openOptionsPanel();
+    return;
+  }
 
-  inputEl.value = "";
-  appendUserBubble(text);
+  await submitChatMessage(text);
+}
+
+/**
+ * Отправка в LLM: UI рисуем сразу; invoke не ждём — Rust гоняет ход в фоне,
+ * иначе WebKitGTK (WSL) замирает и CSS/таймеры не тикают.
+ */
+async function submitChatMessage(text: string) {
+  commitOutgoingChatUi(text);
   setLoading(true);
-  loadingEl.classList.remove("hidden");
+  setChatPending(true);
+  flushLayout();
+  await yieldForPaint();
+  await delayMs(0);
+  flushLayout();
 
-  try {
-    await invoke("send_message", { text });
-  } catch (e) {
+  void invoke("send_message", { text }).catch((e) => {
     cancelStreamDomFlush();
     streamAssistantEl = null;
+    endChatPendingUi();
     appendStatus(`Ошибка: ${e}`);
-    await refreshState();
-  } finally {
-    setLoading(false);
-    loadingEl.classList.add("hidden");
+    void refreshState();
     inputEl.focus();
-  }
+  });
 }
 
 btnSend.onclick = () => void send();
@@ -436,6 +732,7 @@ btnNew.onclick = async () => {
     await invoke("new_session", { clearWm: true, runBoot: true });
     await refreshState();
     hideContext();
+    hideOptionsPanel();
   } finally {
     setLoading(false);
   }
@@ -473,6 +770,7 @@ function escapeHtml(s: string): string {
 }
 
 function showBudgetPanel(m: ContextMetricsDto, draftHint: string) {
+  hideOptionsPanel();
   hideAgentsPanel();
   app.classList.add("context-budget-wide");
   contextTitle.textContent = "Контекст · бюджет";
@@ -651,6 +949,20 @@ function formatSettings(s: SettingsDto): string {
   return lines.join("\n");
 }
 
+async function openOptionsPanel() {
+  hideContext();
+  hideAgentsPanel();
+  try {
+    const s = await invoke<SettingsDto>("get_settings");
+    optionsSettingsPre.textContent = formatSettings(s);
+  } catch (e) {
+    optionsSettingsPre.textContent = String(e);
+  }
+  optSlashHints.checked = slashHintsEnabled();
+  optionsPanel.classList.remove("hidden");
+  app.classList.add("options-open");
+}
+
 btnSleep.onclick = async () => {
   if (
     !window.confirm(
@@ -686,6 +998,30 @@ btnSettings.onclick = async () => {
 btnAgents.onclick = () => void openAgentsEditor();
 
 btnAgentsClose.onclick = () => hideAgentsPanel();
+
+btnOptionsClose.onclick = () => hideOptionsPanel();
+
+optSlashHints.addEventListener("change", () => {
+  localStorage.setItem(LS_KEY_SLASH_HINTS, optSlashHints.checked ? "1" : "0");
+  if (!optSlashHints.checked) {
+    hideSlashHint();
+  }
+});
+
+btnOptionsOpenSettings.onclick = async () => {
+  hideOptionsPanel();
+  try {
+    const s = await invoke<SettingsDto>("get_settings");
+    showContext("Настройки", formatSettings(s));
+  } catch (e) {
+    showContext("Настройки", String(e));
+  }
+};
+
+btnOptionsOpenAgents.onclick = () => {
+  hideOptionsPanel();
+  void openAgentsEditor();
+};
 
 btnAgentsReload.onclick = () => void openAgentsEditor();
 

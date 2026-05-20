@@ -48,6 +48,57 @@ pub fn process_chat_turn<'a>(input: ChatTurnInput<'a>) -> Result<ChatTurnOutput>
         on_stream_delta,
     } = input;
 
+    // Slash `/budget`, `/env`, `/options` не являются пайплайном: Python `pipeline_line` даёт `none`,
+    // после чего строка уходит в LLM и попадает в WM. Тогда в чате иногда полный «html» от модели
+    // (паритет с ранним `continue` в `chat.rs` до `process_chat_turn`).
+    let low = line.to_ascii_lowercase();
+    if low == "/env" || low == "/env all" {
+        wm.reload();
+        let (env, _) = sidecar.startup_reports("env_all")?;
+        return Ok(ChatTurnOutput {
+            reply: None,
+            pipeline_text: Some(env),
+            llm_status: None,
+            status_warning: None,
+            streamed: false,
+        });
+    }
+    if low == "/env active" {
+        wm.reload();
+        let (env, _) = sidecar.startup_reports("env_active")?;
+        return Ok(ChatTurnOutput {
+            reply: None,
+            pipeline_text: Some(env),
+            llm_status: None,
+            status_warning: None,
+            streamed: false,
+        });
+    }
+    if low.starts_with("/budget") {
+        wm.reload();
+        let (_, budget) = sidecar.startup_reports("budget")?;
+        return Ok(ChatTurnOutput {
+            reply: None,
+            pipeline_text: Some(budget),
+            llm_status: None,
+            status_warning: None,
+            streamed: false,
+        });
+    }
+    if low == "/options" {
+        wm.reload();
+        return Ok(ChatTurnOutput {
+            reply: None,
+            pipeline_text: Some(
+                "[eidos] Команда /options открывает панель настроек в Eidos Desktop — обновите клиент."
+                    .to_string(),
+            ),
+            llm_status: None,
+            status_warning: None,
+            streamed: false,
+        });
+    }
+
     let stream_sink_active = on_stream_delta.is_some();
     let mut on_stream_delta = on_stream_delta;
 
