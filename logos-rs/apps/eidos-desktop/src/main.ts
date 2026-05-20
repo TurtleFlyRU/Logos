@@ -101,7 +101,7 @@ app.innerHTML = `
       <h2 id="context-title">Контекст</h2>
       <button type="button" id="btn-context-close" aria-label="Закрыть">×</button>
     </div>
-    <pre id="context-body"></pre>
+    <div id="context-body" class="context-body"></div>
   </aside>
   <aside class="context-panel agents-panel hidden" id="agents-panel">
     <div class="context-head">
@@ -136,17 +136,17 @@ const messagesEl = document.getElementById("messages")!;
 const loadingEl = document.getElementById("loading")!;
 const inputEl = document.getElementById("input") as HTMLTextAreaElement;
 const btnSend = document.getElementById("btn-send") as HTMLButtonElement;
-const btnBoot = document.getElementById("btn-boot")!;
+const btnBoot = document.getElementById("btn-boot") as HTMLButtonElement;
 const btnNew = document.getElementById("btn-new")!;
 const btnEnv = document.getElementById("btn-env")!;
 const btnBudget = document.getElementById("btn-budget")!;
 const btnPipelines = document.getElementById("btn-pipelines")!;
-const btnSleep = document.getElementById("btn-sleep")!;
+const btnSleep = document.getElementById("btn-sleep") as HTMLButtonElement;
 const btnSettings = document.getElementById("btn-settings")!;
 const btnAgents = document.getElementById("btn-agents")!;
 const contextPanel = document.getElementById("context-panel")!;
 const contextTitle = document.getElementById("context-title")!;
-const contextBody = document.getElementById("context-body")!;
+const contextBody = document.getElementById("context-body") as HTMLDivElement;
 const btnContextClose = document.getElementById("btn-context-close")!;
 const agentsPanel = document.getElementById("agents-panel")!;
 const agentsMeta = document.getElementById("agents-meta")!;
@@ -180,7 +180,9 @@ interface AgentsEditorState {
 
 function showContext(title: string, body: string) {
   hideAgentsPanel();
+  app.classList.remove("context-budget-wide");
   contextTitle.textContent = title;
+  contextBody.className = "context-body context-body-plain";
   contextBody.textContent = body;
   contextPanel.classList.remove("hidden");
   app.classList.add("context-open");
@@ -189,6 +191,7 @@ function showContext(title: string, body: string) {
 function hideContext() {
   contextPanel.classList.add("hidden");
   app.classList.remove("context-open");
+  app.classList.remove("context-budget-wide");
 }
 
 function hideAgentsPanel() {
@@ -447,12 +450,46 @@ btnEnv.onclick = async () => {
   }
 };
 
-function formatContextMetrics(m: ContextMetricsDto): string {
-  const pct =
-    m.total_budget > 0
-      ? Math.min(999, (m.total_chars / m.total_budget) * 100).toFixed(0)
-      : "—";
-  const free = m.total_budget > 0 ? Math.max(0, m.total_budget - m.total_chars) : 0;
+/** Подписи слоёв контекста (ключи из Python/Rust). */
+const LAYER_LABELS: Record<string, string> = {
+  persona: "Персона",
+  identity: "Identity",
+  wm_plan_focus: "План WM",
+  attention: "Внимание",
+  active_memory: "Активная память",
+  boot_snippet: "Boot",
+  principles: "Принципы",
+  other: "Прочее",
+  history: "История",
+  wm_summary: "Сводка WM",
+};
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function showBudgetPanel(m: ContextMetricsDto, draftHint: string) {
+  hideAgentsPanel();
+  app.classList.add("context-budget-wide");
+  contextTitle.textContent = "Контекст · бюджет";
+  contextBody.className = "context-body context-body-budget";
+  contextBody.innerHTML = buildBudgetHtml(m, draftHint);
+  contextPanel.classList.remove("hidden");
+  app.classList.add("context-open");
+}
+
+function buildBudgetHtml(m: ContextMetricsDto, draftHint: string): string {
+  const budget = m.total_budget;
+  const used = m.total_chars;
+  const pctFill = budget > 0 ? Math.min(100, (used / budget) * 100) : 0;
+  const pctStr = budget > 0 ? pctFill.toFixed(1) : "—";
+  const free = budget > 0 ? Math.max(0, budget - used) : 0;
+  const over = budget > 0 && used > budget;
+
   const layerOrder = [
     "persona",
     "identity",
@@ -465,35 +502,78 @@ function formatContextMetrics(m: ContextMetricsDto): string {
     "history",
     "wm_summary",
   ];
-  const layerLines: string[] = [];
+
+  const layerRows: string[] = [];
   for (const key of layerOrder) {
     const ch = m.layer_chars[key];
     if (!ch) continue;
     const tok = m.layer_tokens[key] ?? 0;
     const on = m.layers[key];
-    const flag = on === undefined ? "" : on ? " ✓" : " ·";
-    layerLines.push(`  ${key}${flag}: ${ch} chars (~${tok} tok)`);
+    const onLabel = on === undefined ? "" : on ? "вкл." : "выкл.";
+    const label = LAYER_LABELS[key] ?? key;
+    const barPct = budget > 0 ? Math.min(100, (ch / budget) * 100) : 0;
+    const barClass =
+      barPct > 85 ? "budget-bar-fill budget-bar-fill-high" : "budget-bar-fill";
+    layerRows.push(`<div class="budget-layer">
+      <div class="budget-layer-head">
+        <span class="budget-layer-name">${escapeHtml(label)} <code>${escapeHtml(key)}</code></span>
+        <span class="budget-layer-meta">${ch.toLocaleString()} симв. · ~${tok.toLocaleString()} tok${onLabel ? ` · ${escapeHtml(onLabel)}` : ""}</span>
+      </div>
+      <div class="budget-bar-track"><div class="${barClass}" style="width:${barPct.toFixed(1)}%"></div></div>
+    </div>`);
   }
-  const activeLayers = Object.entries(m.layers)
-    .filter(([, v]) => v)
-    .map(([k]) => k)
-    .join(", ");
-  const lines = [
-    "Заполнение",
-    `  ${m.total_chars}/${m.total_budget} chars (${pct}%, free=${free})`,
-    `  ≈ ${m.approx_prompt_tokens} prompt tokens`,
-    "",
-    "Сообщения",
-    `  system=${m.system_messages} history=${m.history_messages} tool=${m.tool_messages}`,
-    "",
-    `Активные слои: ${activeLayers || "—"}`,
-    "Размеры слоёв:",
-    ...(layerLines.length ? layerLines : ["  —"]),
-    "",
-    "— /budget (полный отчёт) —",
-    m.budget_report || "—",
-  ];
-  return lines.join("\n");
+
+  const draftBlock = draftHint
+    ? `<p class="budget-draft-hint">${escapeHtml(draftHint)}</p>`
+    : "";
+
+  const mainBarClass = over
+    ? "budget-bar-fill budget-bar-fill-over"
+    : pctFill > 85
+      ? "budget-bar-fill budget-bar-fill-high"
+      : "budget-bar-fill";
+
+  const reportRaw = m.budget_report?.trim() || "—";
+  const reportHtml = escapeHtml(reportRaw);
+
+  return `<div class="budget-root">
+    ${draftBlock}
+    <section class="budget-summary">
+      <div class="budget-stat">
+        <span class="budget-stat-label">Символов в промпте</span>
+        <span class="budget-stat-value">${used.toLocaleString()} / ${budget > 0 ? budget.toLocaleString() : "∞"}</span>
+      </div>
+      <div class="budget-stat">
+        <span class="budget-stat-label">Заполнение</span>
+        <span class="budget-stat-value ${over ? "budget-over" : ""}">${pctStr}%</span>
+      </div>
+      <div class="budget-stat">
+        <span class="budget-stat-label">Свободно</span>
+        <span class="budget-stat-value">${budget > 0 ? free.toLocaleString() : "—"} симв.</span>
+      </div>
+      <div class="budget-stat">
+        <span class="budget-stat-label">≈ Токены</span>
+        <span class="budget-stat-value">~${m.approx_prompt_tokens.toLocaleString()}</span>
+      </div>
+    </section>
+    <div class="budget-bar-track budget-bar-total"><div class="${mainBarClass}" style="width:${budget > 0 ? Math.min(100, pctFill).toFixed(1) : 0}%"></div></div>
+    <section class="budget-wm-msg">
+      <h3 class="budget-section-title">События в промпте</h3>
+      <div class="budget-chips">
+        <span class="budget-chip">system <strong>${m.system_messages}</strong></span>
+        <span class="budget-chip">история <strong>${m.history_messages}</strong></span>
+        <span class="budget-chip">tool <strong>${m.tool_messages}</strong></span>
+      </div>
+    </section>
+    <section class="budget-layers">
+      <h3 class="budget-section-title">Слои system / extra</h3>
+      ${layerRows.length ? layerRows.join("") : "<p class=\"budget-muted\">Нет данных по слоям (возможно, бюджет не задан).</p>"}
+    </section>
+    <details class="budget-details">
+      <summary>Полный текст отчёта /budget (sidecar)</summary>
+      <pre class="budget-report-pre">${reportHtml}</pre>
+    </details>
+  </div>`;
 }
 
 async function showContextMetrics() {
@@ -502,7 +582,10 @@ async function showContextMetrics() {
     const m = await invoke<ContextMetricsDto>("get_context_metrics", {
       userMessage: draft || null,
     });
-    showContext("Контекст / Budget", formatContextMetrics(m));
+    const hint = draft
+      ? "В метриках учтён черновик в поле ввода (как следующее пользовательское сообщение)."
+      : "";
+    showBudgetPanel(m, hint);
   } catch (e) {
     showContext("Контекст", String(e));
   }
