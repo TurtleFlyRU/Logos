@@ -50,8 +50,8 @@ LSP отложен. Этот документ — план и чеклист **P
 - [x] `eidos-core/src/memory_tools.rs` — episodic/semantic/journal lexical
 - [x] `eidos-core/src/external_store.rs` — `memory_search_external` лексика по `documents.db`
 - [x] `execute_tool` / chat: fallback если sidecar выключен (`EIDOS_RUST_NO_SIDECAR=1`)
-- [ ] Полный active memory в Rust (без Python) — отдельный эпик, см. `context_system_extra`
-- [ ] ML sidecar HTTP для journal/external **vectors** — `eidos-ml` + `EIDOS_ML_SIDECAR_URL` (опциональный апгрейд поверх лексики)
+- [x] `eidos-core/src/active_memory.rs` — пассивный блок в system без Python (`EIDOS_RUST_NO_SIDECAR=1` или `EIDOS_RUST_ACTIVE_MEMORY=1`)
+- [x] `sidecars/eidos-ml/` + `ml_client` — `EIDOS_ML_SIDECAR_URL` → `POST /search/journal`, `/search/external` (вектора); иначе лексика
 
 ---
 

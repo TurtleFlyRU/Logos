@@ -26,7 +26,9 @@ cargo run -p eidos-cli -- chat --new
 
 | Переменная | Эффект |
 |------------|--------|
-| `EIDOS_RUST_NO_SIDECAR=1` | без долгоживущего Python sidecar: `memory_*` в Rust (episodic/semantic/journal + **лексический** `memory_search_external`); **браузер** `browser_*` не держит сессию между вызовами |
+| `EIDOS_RUST_NO_SIDECAR=1` | без Python sidecar: **active memory** и `memory_*` в Rust; браузер `browser_*` не держит сессию |
+| `EIDOS_RUST_ACTIVE_MEMORY=1` | пассивный блок памяти в system собирает Rust (`active_memory.rs`), даже если sidecar есть |
+| `EIDOS_ML_SIDECAR_URL` | HTTP `sidecars/eidos-ml` — векторный journal/external (`eidos ml health`) |
 | `EIDOS_PLAYWRIGHT` | по умолчанию **вкл.** — инструменты `browser_*` в Rust-чате через sidecar; `0`/`false`/`no`/`off` — выкл.; нужны `playwright` + браузерные зависимости |
 | `EIDOS_HTTP_FETCH` | по умолчанию **вкл.** — инструмент `fetch_https_url` (GET публичных URL); `0`/`false`/`no`/`off` — выкл. |
 | `EIDOS_RUST_BOOT=1` | краткий Rust-boot |

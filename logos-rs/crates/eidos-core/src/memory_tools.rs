@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 
 use crate::episodic_store::EpisodicStore;
 use crate::error::{CoreError, Result};
-use crate::external_store::search_external_lexical;
+use crate::ml_client::search_external_hits;
 use crate::paths::Paths;
 use crate::semantic_store::SemanticStore;
 
@@ -277,24 +277,16 @@ fn search_external(paths: &Paths, args: &Value) -> Result<Value> {
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .trim();
+    if query.is_empty() {
+        return Err(CoreError::Tool("query required".into()));
+    }
     let top_k = args
         .get("top_k")
         .and_then(|v| v.as_u64())
         .unwrap_or(8)
         .clamp(1, 20) as usize;
-    let mut out = search_external_lexical(paths, query, top_k)?;
-    if let Some(min_score) = args.get("min_score").and_then(|v| v.as_f64()) {
-        if let Some(hits) = out.get_mut("hits").and_then(|v| v.as_array_mut()) {
-            hits.retain(|h| {
-                h.get("score")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0)
-                    >= min_score
-            });
-            out["count"] = json!(hits.len());
-        }
-    }
-    Ok(out)
+    let min_score = args.get("min_score").and_then(|v| v.as_f64()).unwrap_or(0.12);
+    search_external_hits(paths, query, top_k, min_score)
 }
 
 fn read_journal(paths: &Paths, args: &Value) -> Result<Value> {

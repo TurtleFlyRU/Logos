@@ -6,6 +6,8 @@ use std::sync::OnceLock;
 use regex::Regex;
 use serde_json::Value;
 
+use crate::active_memory;
+use crate::paths::resolve_paths;
 use crate::py_sidecar::Sidecar;
 use crate::working_memory::WorkingMemory;
 use eidos_protocol::working::WmContext;
@@ -314,10 +316,16 @@ pub fn build_system_extra_with_budget(
 
     if active_memory_flag() && rem > 0 {
         let cap_am = rem.min(active_memory_budget_chars());
-        match sidecar.active_memory_block(cli_session_id, user_message, cap_am) {
-            Ok(block) => add_layer(&mut parts, &mut rem, &block),
-            Err(e) => eprintln!("[eidos] active_memory_block: {e}"),
-        }
+        append_active_memory_layer(
+            &mut parts,
+            &mut rem,
+            wm,
+            persona,
+            cli_session_id,
+            user_message,
+            cap_am,
+            sidecar,
+        );
     }
 
     if boot_snippet_enabled() && rem > 0 {
@@ -380,14 +388,18 @@ pub fn build_chat_context_full(
     }
     if active_memory_flag() {
         let cap = active_memory_budget_chars();
-        match sidecar.active_memory_block(cli_session_id, user_message, cap) {
-            Ok(block) => {
-                let t = block.trim();
-                if !t.is_empty() {
-                    parts.push(t.to_string());
-                }
+        if let Some(block) = fetch_active_memory_block(
+            wm,
+            persona,
+            cli_session_id,
+            user_message,
+            cap,
+            sidecar,
+        ) {
+            let t = block.trim();
+            if !t.is_empty() {
+                parts.push(t.to_string());
             }
-            Err(e) => eprintln!("[eidos] active_memory_block: {e}"),
         }
     }
     if boot_snippet_enabled() {
@@ -409,6 +421,54 @@ pub fn build_chat_context_full(
         }
     }
     parts.join("\n\n")
+}
+
+fn fetch_active_memory_block(
+    wm: &WorkingMemory,
+    persona: &str,
+    cli_session_id: &str,
+    user_message: &str,
+    cap: usize,
+    sidecar: &mut Sidecar,
+) -> Option<String> {
+    if active_memory::use_rust_active_memory() {
+        if let Ok(paths) = resolve_paths() {
+            return active_memory::format_active_memory_block(
+                &paths,
+                wm,
+                persona,
+                cli_session_id,
+                user_message,
+                cap,
+            )
+            .ok();
+        }
+    }
+    sidecar
+        .active_memory_block(cli_session_id, user_message, cap)
+        .ok()
+}
+
+fn append_active_memory_layer(
+    parts: &mut Vec<String>,
+    rem: &mut usize,
+    wm: &WorkingMemory,
+    persona: &str,
+    cli_session_id: &str,
+    user_message: &str,
+    cap: usize,
+    sidecar: &mut Sidecar,
+) {
+    if let Some(block) = fetch_active_memory_block(
+        wm,
+        persona,
+        cli_session_id,
+        user_message,
+        cap,
+        sidecar,
+    ) {
+        add_layer(parts, rem, &block);
+    }
 }
 
 static IDENTITY_RE: OnceLock<Regex> = OnceLock::new();

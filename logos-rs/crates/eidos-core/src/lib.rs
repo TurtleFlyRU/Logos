@@ -10,8 +10,10 @@ pub mod context_budget;
 pub mod context_system_extra;
 pub mod context_wm_summary;
 pub mod desktop;
+pub mod active_memory;
 pub mod episodic_store;
 pub mod external_store;
+pub mod journal_search;
 pub mod error;
 pub mod journal_list;
 pub mod memory_tools;
@@ -47,7 +49,10 @@ pub use session::{
 };
 pub use episodic_store::EpisodicStore;
 pub use error::{CoreError, Result};
-pub use ml_client::{ml_sidecar_base_url, ml_sidecar_configured, ml_sidecar_health_check};
+pub use ml_client::{
+    ml_sidecar_base_url, ml_sidecar_configured, ml_sidecar_health_check, search_external_hits,
+    search_journal_hits,
+};
 pub use paths::{
     data_root, repo_root, repo_root_from_dir, resolve_paths, resolve_paths_from_repo, Paths,
 };
