@@ -1,5 +1,7 @@
 //! API для Tauri desktop (фаза 3).
 
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use eidos_protocol::working::WmEvent;
@@ -8,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::agents::get_llm_runtime_params;
 use crate::boot::run_cli_chat_boot;
 use crate::chat_turn::{prepare_session_boot, process_chat_turn, ChatTurnInput};
-use crate::error::Result;
+use crate::error::{CoreError, Result};
 use crate::paths::{resolve_paths, Paths};
 use crate::py_sidecar::Sidecar;
 use crate::session::{
@@ -70,6 +72,16 @@ pub struct ContextMetricsDto {
     pub layer_chars: std::collections::HashMap<String, u64>,
     pub layer_tokens: std::collections::HashMap<String, u64>,
     pub budget_report: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentsEditorState {
+    /// Текущее содержимое для редактирования (фактический файл, из которого читает рантайм).
+    pub content: String,
+    /// Путь прочитанного файла (для подписи в UI).
+    pub active_file: String,
+    /// Куда сохранится при «Сохранить» (`data/config/agents.yaml` или `EIDOS_AGENTS_CONFIG`).
+    pub save_target: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -332,6 +344,52 @@ impl DesktopRuntime {
             sidecar_disabled: env_flag("EIDOS_RUST_NO_SIDECAR"),
         })
     }
+
+    /// Текст конфигурации агентов для редактора (читается тот же файл, что и рантайм).
+    pub fn read_agents_editor_state(&self) -> Result<AgentsEditorState> {
+        let active = self.paths.find_agents_config().ok_or_else(|| {
+            CoreError::WorkingMemory(
+                "Не найден agents.yaml (EIDOS_AGENTS_CONFIG, data/config, config/, defaults)."
+                    .into(),
+            )
+        })?;
+        let content = fs::read_to_string(&active).map_err(|e| {
+            CoreError::WorkingMemory(format!("чтение {}: {e}", active.display()))
+        })?;
+        let save_target = agents_yaml_save_path(&self.paths)?;
+        assert_save_parent_allowed(&self.paths, &save_target)?;
+        Ok(AgentsEditorState {
+            content,
+            active_file: active.display().to_string(),
+            save_target: save_target.display().to_string(),
+        })
+    }
+
+    /// Атомарно записать конфигурацию (цель — `data/config/agents.yaml` или `EIDOS_AGENTS_CONFIG`).
+    ///
+    /// Чтобы подхватить профиль без перезапуска приложения, сейчас нет hot-reload — перезапустите desktop или смените сессию после правки при необходимости.
+    pub fn write_agents_config_file(&self, content: &str) -> Result<()> {
+        let save_target = agents_yaml_save_path(&self.paths)?;
+        assert_save_parent_allowed(&self.paths, &save_target)?;
+        if let Some(parent) = save_target.parent() {
+            fs::create_dir_all(parent).map_err(|e| {
+                CoreError::WorkingMemory(format!("mkdir {}: {e}", parent.display()))
+            })?;
+        }
+        let name = save_target
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("agents.yaml");
+        let tmp = save_target.with_file_name(format!("{name}.tmp"));
+        fs::write(&tmp, content.as_bytes()).map_err(|e| {
+            CoreError::WorkingMemory(format!("запись {}: {e}", tmp.display()))
+        })?;
+        fs::rename(&tmp, &save_target).map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            CoreError::WorkingMemory(format!("commit {}: {e}", save_target.display()))
+        })?;
+        Ok(())
+    }
 }
 
 fn parse_context_metrics(r: serde_json::Value) -> Result<ContextMetricsDto> {
@@ -388,6 +446,57 @@ fn env_flag(name: &str) -> bool {
         std::env::var(name).as_deref(),
         Ok("1") | Ok("true") | Ok("yes") | Ok("on")
     )
+}
+
+fn agents_yaml_save_path(paths: &Paths) -> Result<PathBuf> {
+    if let Ok(raw) = std::env::var("EIDOS_AGENTS_CONFIG") {
+        let t = raw.trim();
+        if !t.is_empty() {
+            return Ok(PathBuf::from(t));
+        }
+    }
+    Ok(paths.data_root.join("config").join("agents.yaml"))
+}
+
+/// Разрешить запись только под корнем репозитория или `data_root`.
+fn assert_save_parent_allowed(paths: &Paths, target: &Path) -> Result<()> {
+    let repo = paths
+        .repo_root
+        .canonicalize()
+        .unwrap_or_else(|_| paths.repo_root.clone());
+    let data = paths
+        .data_root
+        .canonicalize()
+        .unwrap_or_else(|_| paths.data_root.clone());
+    let Some(parent) = target.parent() else {
+        return Err(CoreError::WorkingMemory(
+            "agents: у целевого пути нет родительского каталога".into(),
+        ));
+    };
+    if parent.as_os_str().is_empty() {
+        return Err(CoreError::WorkingMemory(
+            "agents: некорректный путь сохранения".into(),
+        ));
+    }
+    let mut p = parent.to_path_buf();
+    while !p.as_os_str().is_empty() && !p.is_dir() {
+        if let Some(pp) = p.parent() {
+            p = pp.to_path_buf();
+        } else {
+            break;
+        }
+    }
+    let p = p
+        .canonicalize()
+        .unwrap_or_else(|_| p.clone());
+    if !(p.starts_with(&repo) || p.starts_with(&data)) {
+        return Err(CoreError::WorkingMemory(format!(
+            "сохранение agents.yaml только под {} или {}",
+            repo.display(),
+            data.display()
+        )));
+    }
+    Ok(())
 }
 
 fn session_messages(wm: &WorkingMemory, session_id: &str) -> Vec<ChatMessageDto> {

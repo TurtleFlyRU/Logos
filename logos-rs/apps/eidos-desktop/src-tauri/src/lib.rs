@@ -4,7 +4,7 @@ use std::env;
 use std::sync::{Arc, Mutex};
 
 use eidos_core::{
-    ChatMessageDto, ContextMetricsDto, DesktopRuntime, LlmProfileDto, PathsDto,
+    AgentsEditorState, ChatMessageDto, ContextMetricsDto, DesktopRuntime, LlmProfileDto, PathsDto,
     SendMessageResult, SessionRecord, SettingsDto, SleepResult,
 };
 use serde::Serialize;
@@ -227,6 +227,24 @@ fn get_settings(state: State<Mutex<AppState>>) -> Result<SettingsDto, String> {
     guard.runtime.settings().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn get_agents_editor_state(state: State<Mutex<AppState>>) -> Result<AgentsEditorState, String> {
+    let guard = state.lock().map_err(|e| e.to_string())?;
+    guard
+        .runtime
+        .read_agents_editor_state()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn save_agents_config(state: State<Mutex<AppState>>, content: String) -> Result<(), String> {
+    let guard = state.lock().map_err(|e| e.to_string())?;
+    guard
+        .runtime
+        .write_agents_config_file(&content)
+        .map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // После tool round ответ показывается через replay-chunkи; без паузы WebKit
@@ -253,6 +271,8 @@ pub fn run() {
             get_pipeline_help,
             run_sleep,
             get_settings,
+            get_agents_editor_state,
+            save_agents_config,
         ])
         .run(tauri::generate_context!())
         .expect("tauri run");

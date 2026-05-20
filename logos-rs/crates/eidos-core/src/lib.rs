@@ -34,7 +34,7 @@ pub use boot::run_cli_chat_boot;
 pub use chat::{run_chat_interactive, ChatOptions, CliChatReply};
 pub use chat_turn::{prepare_session_boot, process_chat_turn, ChatTurnInput, ChatTurnOutput};
 pub use desktop::{
-    ChatMessageDto, ContextMetricsDto, DesktopRuntime, LlmProfileDto, PathsDto,
+    AgentsEditorState, ChatMessageDto, ContextMetricsDto, DesktopRuntime, LlmProfileDto, PathsDto,
     SendMessageResult, SettingsDto, SleepResult,
 };
 pub use journal_list::{list_journal_markdown, JournalEntryPath};

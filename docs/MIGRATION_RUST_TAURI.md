@@ -218,9 +218,9 @@ cd logos-rs && cargo run -p eidos-cli -- chat --new
 - [x] Панель метрик контекста (кнопка «Контекст», sidecar `context_metrics`)
 - [x] CI: `.github/workflows/rust.yml` — `cargo test --workspace`
 - [x] Sleep из UI (`run_sleep` → `python3 eidos.py sleep`)
-- [x] Настройки профиля в UI (без секретов, `get_settings`)
+- [x] Редактор `agents.yaml` в окне (чтение как у рантайма, запись в `data/config/agents.yaml` или `EIDOS_AGENTS_CONFIG` в пределах repo/data; `get_agents_editor_state` / `save_agents_config`)
 
-**DoD (выполнен):** повседневный чат без терминала — тот же WM/sidecar, что `eidos chat`; стриминг; контекст; сон; настройки. Редактор `agents.yaml` в окне — **фаза 4+** (сейчас правка файла или `EIDOS_AGENTS_CONFIG`).
+**DoD (выполнен):** повседневный чат без терминала — тот же WM/sidecar, что `eidos chat`; стриминг; контекст; сон; настройки; **базовый редактор agents.yaml в окне** (кнопка «agents»). Углублённый UI бюджета и hot-reload профиля — **фаза 4+**.
 
 См. [logos-rs/apps/eidos-desktop/README.md](../logos-rs/apps/eidos-desktop/README.md).
 

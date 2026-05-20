@@ -85,6 +85,7 @@ app.innerHTML = `
     <button type="button" id="btn-boot">Boot</button>
     <button type="button" id="btn-sleep" title="python3 eidos.py sleep">Сон</button>
     <button type="button" id="btn-settings" title="Профиль и пути">Настройки</button>
+    <button type="button" id="btn-agents" title="Редактировать agents.yaml">agents</button>
     <button type="button" class="primary" id="btn-new">Новая сессия</button>
   </header>
   <aside class="sessions-panel">
@@ -101,6 +102,18 @@ app.innerHTML = `
       <button type="button" id="btn-context-close" aria-label="Закрыть">×</button>
     </div>
     <pre id="context-body"></pre>
+  </aside>
+  <aside class="context-panel agents-panel hidden" id="agents-panel">
+    <div class="context-head">
+      <h2>agents.yaml</h2>
+      <button type="button" id="btn-agents-close" aria-label="Закрыть">×</button>
+    </div>
+    <p id="agents-meta" class="agents-meta"></p>
+    <textarea id="agents-editor" class="agents-editor" spellcheck="false"></textarea>
+    <div class="agents-actions">
+      <button type="button" class="primary" id="btn-agents-save">Сохранить</button>
+      <button type="button" id="btn-agents-reload">Перечитать</button>
+    </div>
   </aside>
   <footer>
     <textarea
@@ -130,10 +143,17 @@ const btnBudget = document.getElementById("btn-budget")!;
 const btnPipelines = document.getElementById("btn-pipelines")!;
 const btnSleep = document.getElementById("btn-sleep")!;
 const btnSettings = document.getElementById("btn-settings")!;
+const btnAgents = document.getElementById("btn-agents")!;
 const contextPanel = document.getElementById("context-panel")!;
 const contextTitle = document.getElementById("context-title")!;
 const contextBody = document.getElementById("context-body")!;
 const btnContextClose = document.getElementById("btn-context-close")!;
+const agentsPanel = document.getElementById("agents-panel")!;
+const agentsMeta = document.getElementById("agents-meta")!;
+const agentsEditor = document.getElementById("agents-editor") as HTMLTextAreaElement;
+const btnAgentsClose = document.getElementById("btn-agents-close")!;
+const btnAgentsSave = document.getElementById("btn-agents-save")!;
+const btnAgentsReload = document.getElementById("btn-agents-reload")!;
 
 let currentSession = "";
 let composing = false;
@@ -152,7 +172,14 @@ interface ChatStreamEndPayload {
   result: SendMessageResult;
 }
 
+interface AgentsEditorState {
+  content: string;
+  active_file: string;
+  save_target: string;
+}
+
 function showContext(title: string, body: string) {
+  hideAgentsPanel();
   contextTitle.textContent = title;
   contextBody.textContent = body;
   contextPanel.classList.remove("hidden");
@@ -162,6 +189,24 @@ function showContext(title: string, body: string) {
 function hideContext() {
   contextPanel.classList.add("hidden");
   app.classList.remove("context-open");
+}
+
+function hideAgentsPanel() {
+  agentsPanel.classList.add("hidden");
+  app.classList.remove("agents-open");
+}
+
+async function openAgentsEditor() {
+  hideContext();
+  try {
+    const st = await invoke<AgentsEditorState>("get_agents_editor_state");
+    agentsEditor.value = st.content;
+    agentsMeta.textContent = `Сейчас читается: ${st.active_file}\nСохранение → ${st.save_target}`;
+    agentsPanel.classList.remove("hidden");
+    app.classList.add("agents-open");
+  } catch (e) {
+    appendStatus(`agents.yaml: ${e}`);
+  }
 }
 
 function setLoading(on: boolean) {
@@ -535,6 +580,24 @@ btnSettings.onclick = async () => {
     showContext("Настройки", formatSettings(s));
   } catch (e) {
     showContext("Настройки", String(e));
+  }
+};
+
+btnAgents.onclick = () => void openAgentsEditor();
+
+btnAgentsClose.onclick = () => hideAgentsPanel();
+
+btnAgentsReload.onclick = () => void openAgentsEditor();
+
+btnAgentsSave.onclick = async () => {
+  try {
+    await invoke("save_agents_config", { content: agentsEditor.value });
+    appendStatus(
+      "[eidos] agents.yaml сохранён. Для подхвата профиля перезапустите desktop или откройте редактор снова после смены env.",
+    );
+    await openAgentsEditor();
+  } catch (e) {
+    appendStatus(`Сохранение agents: ${e}`);
   }
 };
 
