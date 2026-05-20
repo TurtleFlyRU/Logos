@@ -536,18 +536,66 @@ header button.primary {
   line-height: 1.4;
 }
 
-.agents-editor {
+.agents-editor-host {
   flex: 1;
   margin: 0;
-  padding: 12px;
-  min-height: 120px;
-  resize: none;
+  min-height: 160px;
+  overflow: hidden;
   border: none;
   background: var(--bg);
-  color: var(--text);
-  font-family: ui-monospace, "Cascadia Code", monospace;
-  font-size: var(--text-base);
-  line-height: 1.4;
+}
+
+.agents-editor-host .cm-editor {
+  height: 100%;
+}
+
+.budget-trend-chart {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 8px;
+}
+
+.budget-trend-svg {
+  flex: 1;
+  min-width: 0;
+  height: 56px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.budget-trend-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 56px;
+  width: 72px;
+  flex-shrink: 0;
+}
+
+.budget-trend-bars span {
+  flex: 1;
+  min-width: 3px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
+  opacity: 0.85;
+}
+
+.budget-trend-bar-high {
+  background: #d97706;
+}
+
+.budget-trend-bar-uncapped {
+  height: 20% !important;
+  background: var(--muted);
+  opacity: 0.5;
+}
+
+.budget-trend-meta {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 
 .agents-actions {

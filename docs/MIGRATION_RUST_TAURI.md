@@ -251,8 +251,10 @@ cd logos-rs && cargo run -p eidos-cli -- chat --new
 
 ### Фаза 6 — `eidos-lsp` (3–4 нед. после стабильного core)
 
-- `tower-lsp`, workspace = repo root.
-- Custom requests памяти; опционально встроенный редактор в Tauri.
+- [x] Каркас crate: `cargo run -p eidos-lsp` → пути repo/data/WM, `crates/eidos-lsp/README.md`
+- [x] Desktop: CodeMirror YAML в редакторе agents; тренды бюджета (`budget_history` в `cli_sessions`)
+- [ ] `tower-lsp`, workspace = repo root
+- [ ] Custom requests памяти; опционально встроенный редактор в Tauri
 
 ### Фаза 7 — ML native (опционально)
 

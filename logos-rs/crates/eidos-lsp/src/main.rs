@@ -1,6 +1,22 @@
-//! Заглушка LSP-сервера (фаза 6: tower-lsp + eidos-core).
+//! LSP-сервер Эйдос (фаза 6). Сейчас — каркас: пути, версия, план custom requests.
+
+use eidos_core::{resolve_paths, VERSION};
 
 fn main() {
-    eprintln!("eidos-lsp: не реализован (фаза 6). См. docs/MIGRATION_RUST_TAURI.md");
-    std::process::exit(2);
+    match resolve_paths() {
+        Ok(paths) => {
+            eprintln!("eidos-lsp {VERSION}");
+            eprintln!("  repo: {}", paths.repo_root.display());
+            eprintln!("  data: {}", paths.data_root.display());
+            eprintln!("  WM:   {}", paths.working_memory_path().display());
+            eprintln!();
+            eprintln!("Следующий шаг: tower-lsp (stdio), custom requests:");
+            eprintln!("  eidos/sessionList, eidos/contextPreview, eidos/memorySearch");
+            eprintln!("См. crates/eidos-lsp/README.md");
+        }
+        Err(e) => {
+            eprintln!("eidos-lsp: ошибка путей: {e}");
+            std::process::exit(1);
+        }
+    }
 }

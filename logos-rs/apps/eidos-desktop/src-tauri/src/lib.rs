@@ -4,7 +4,8 @@ use std::env;
 use std::sync::{Arc, Mutex};
 
 use eidos_core::{
-    AgentsEditorState, ChatMessageDto, ContextMetricsDto, DesktopRuntime, LlmProfileDto, PathsDto,
+    append_session_budget_snapshot, read_session_budget_history, AgentsEditorState,
+    BudgetSnapshot, ChatMessageDto, ContextMetricsDto, DesktopRuntime, LlmProfileDto, PathsDto,
     SendMessageResult, SessionRecord, SettingsDto, SleepResult,
 };
 use serde::Serialize;
@@ -242,6 +243,30 @@ fn get_agents_editor_state(state: State<Mutex<AppState>>) -> Result<AgentsEditor
 }
 
 #[tauri::command]
+fn record_budget_snapshot(state: State<Mutex<AppState>>) -> Result<(), String> {
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    let m = guard
+        .runtime
+        .context_metrics(None)
+        .map_err(|e| e.to_string())?;
+    let snap = BudgetSnapshot::from_usage(m.total_chars, m.total_budget, m.approx_prompt_tokens);
+    append_session_budget_snapshot(&guard.runtime.paths, &guard.runtime.session_id, snap)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_session_budget_history(
+    state: State<Mutex<AppState>>,
+    session_id: Option<String>,
+) -> Result<Vec<BudgetSnapshot>, String> {
+    let guard = state.lock().map_err(|e| e.to_string())?;
+    let sid = session_id
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| guard.runtime.session_id.clone());
+    read_session_budget_history(&guard.runtime.paths, &sid).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn save_agents_config(state: State<Mutex<AppState>>, content: String) -> Result<(), String> {
     let guard = state.lock().map_err(|e| e.to_string())?;
     guard
@@ -278,6 +303,8 @@ pub fn run() {
             get_settings,
             get_agents_editor_state,
             save_agents_config,
+            record_budget_snapshot,
+            get_session_budget_history,
         ])
         .run(tauri::generate_context!())
         .expect("tauri run");

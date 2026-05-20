@@ -1,5 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import {
+  destroyAgentsEditor,
+  getAgentsEditorText,
+  mountAgentsEditor,
+} from "./agents-editor";
 import "./style.css";
 
 interface PathsDto {
@@ -93,6 +98,14 @@ interface ContextMetricsDto {
   budget_report: string;
 }
 
+interface BudgetSnapshotDto {
+  ts: number;
+  total_chars: number;
+  total_budget: number;
+  approx_prompt_tokens: number;
+  fill_pct: number | null;
+}
+
 /** Меняйте при правках UI — по метке в шапке видно, подхватился ли свежий фронт. */
 const UI_BUILD_ID = "send-ui-20250520f";
 
@@ -135,7 +148,7 @@ app.innerHTML = `
       <button type="button" id="btn-agents-close" aria-label="Закрыть">×</button>
     </div>
     <p id="agents-meta" class="agents-meta"></p>
-    <textarea id="agents-editor" class="agents-editor" spellcheck="false"></textarea>
+    <div id="agents-editor-host" class="agents-editor-host"></div>
     <div class="agents-actions">
       <button type="button" class="primary" id="btn-agents-save">Сохранить</button>
       <button type="button" id="btn-agents-reload">Перечитать</button>
@@ -207,7 +220,7 @@ const contextBody = document.getElementById("context-body") as HTMLDivElement;
 const btnContextClose = document.getElementById("btn-context-close")!;
 const agentsPanel = document.getElementById("agents-panel")!;
 const agentsMeta = document.getElementById("agents-meta")!;
-const agentsEditor = document.getElementById("agents-editor") as HTMLTextAreaElement;
+const agentsEditorHost = document.getElementById("agents-editor-host")!;
 const btnAgentsClose = document.getElementById("btn-agents-close")!;
 const btnAgentsSave = document.getElementById("btn-agents-save")!;
 const btnAgentsReload = document.getElementById("btn-agents-reload")!;
@@ -266,6 +279,7 @@ function hideContext() {
 }
 
 function hideAgentsPanel() {
+  destroyAgentsEditor();
   agentsPanel.classList.add("hidden");
   app.classList.remove("agents-open");
 }
@@ -363,7 +377,7 @@ async function openAgentsEditor() {
   hideContext();
   try {
     const st = await invoke<AgentsEditorState>("get_agents_editor_state");
-    agentsEditor.value = st.content;
+    mountAgentsEditor(agentsEditorHost, st.content);
     agentsMeta.textContent = `Сейчас читается: ${st.active_file}\nСохранение → ${st.save_target}`;
     agentsPanel.classList.remove("hidden");
     app.classList.add("agents-open");
@@ -607,6 +621,7 @@ function setupChatStreamListeners() {
     streamAssistantEl = null;
     const res = ev.payload.result;
     endChatPendingUi();
+    void invoke("record_budget_snapshot").catch(() => {});
     await refreshState();
     if (res.llm_status) appendStatus(res.llm_status);
     if (res.status_warning) appendStatus(res.status_warning);
@@ -769,18 +784,78 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function showBudgetPanel(m: ContextMetricsDto, draftHint: string) {
+function showBudgetPanel(
+  m: ContextMetricsDto,
+  draftHint: string,
+  history: BudgetSnapshotDto[],
+) {
   hideOptionsPanel();
   hideAgentsPanel();
   app.classList.add("context-budget-wide");
   contextTitle.textContent = "Контекст · бюджет";
   contextBody.className = "context-body context-body-budget";
-  contextBody.innerHTML = buildBudgetHtml(m, draftHint);
+  contextBody.innerHTML = buildBudgetHtml(m, draftHint, history);
   contextPanel.classList.remove("hidden");
   app.classList.add("context-open");
 }
 
-function buildBudgetHtml(m: ContextMetricsDto, draftHint: string): string {
+function buildBudgetTrendHtml(history: BudgetSnapshotDto[]): string {
+  if (history.length < 2) {
+    return `<section class="budget-trend">
+      <h3 class="budget-section-title">Тренд сессии</h3>
+      <p class="budget-muted">Нужно хотя бы два замера (откройте «Контекст» после ответов или отправьте сообщения).</p>
+    </section>`;
+  }
+  const w = 280;
+  const h = 56;
+  const pad = 4;
+  const vals = history.map((s) =>
+    s.fill_pct != null ? Math.min(100, Math.max(0, s.fill_pct)) : null,
+  );
+  const numeric = vals.filter((v): v is number => v != null);
+  const maxY = numeric.length ? Math.max(...numeric, 1) : 100;
+  const points: string[] = [];
+  const barCells: string[] = [];
+  for (let i = 0; i < history.length; i++) {
+    const v = vals[i];
+    const x =
+      pad + (i / Math.max(1, history.length - 1)) * (w - 2 * pad);
+    if (v != null) {
+      const y = h - pad - (v / maxY) * (h - 2 * pad);
+      points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+      const barClass =
+        v > 85 ? "budget-trend-bar-high" : "budget-trend-bar";
+      barCells.push(
+        `<span class="${barClass}" style="height:${((v / maxY) * 100).toFixed(0)}%" title="${v.toFixed(0)}%"></span>`,
+      );
+    } else {
+      const y = h - pad;
+      points.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+      barCells.push(`<span class="budget-trend-bar-uncapped" title="без лимита"></span>`);
+    }
+  }
+  const last = history[history.length - 1];
+  const lastLabel =
+    last.fill_pct != null
+      ? `${last.fill_pct.toFixed(0)}%`
+      : `${last.total_chars.toLocaleString()} симв.`;
+  return `<section class="budget-trend">
+    <h3 class="budget-section-title">Тренд сессии (${history.length} замеров)</h3>
+    <div class="budget-trend-chart">
+      <svg class="budget-trend-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true">
+        <polyline fill="none" stroke="var(--accent)" stroke-width="2" points="${points.join(" ")}"/>
+      </svg>
+      <div class="budget-trend-bars">${barCells.join("")}</div>
+    </div>
+    <p class="budget-trend-meta">Последний: ${lastLabel} · ~${last.approx_prompt_tokens.toLocaleString()} tok</p>
+  </section>`;
+}
+
+function buildBudgetHtml(
+  m: ContextMetricsDto,
+  draftHint: string,
+  history: BudgetSnapshotDto[],
+): string {
   const budget = m.total_budget;
   const used = Math.max(0, m.total_chars);
   /** При uncapped бюджете полосы слоёв считают долю от текущего промпта, иначе — от лимита. */
@@ -853,6 +928,7 @@ function buildBudgetHtml(m: ContextMetricsDto, draftHint: string): string {
   return `<div class="budget-root">
     ${draftBlock}
     ${uncappedHint}
+    ${buildBudgetTrendHtml(history)}
     <section class="budget-summary">
       <div class="budget-stat">
         <span class="budget-stat-label">Символов в промпте</span>
@@ -894,13 +970,23 @@ function buildBudgetHtml(m: ContextMetricsDto, draftHint: string): string {
 async function showContextMetrics() {
   try {
     const draft = inputEl.value.trim();
-    const m = await invoke<ContextMetricsDto>("get_context_metrics", {
-      userMessage: draft || null,
-    });
+    const [m, history] = await Promise.all([
+      invoke<ContextMetricsDto>("get_context_metrics", {
+        userMessage: draft || null,
+      }),
+      invoke<BudgetSnapshotDto[]>("get_session_budget_history", {
+        sessionId: currentSession,
+      }),
+    ]);
+    void invoke("record_budget_snapshot").catch(() => {});
     const hint = draft
       ? "В метриках учтён черновик в поле ввода (как следующее пользовательское сообщение)."
       : "";
-    showBudgetPanel(m, hint);
+    const historyFresh = await invoke<BudgetSnapshotDto[]>(
+      "get_session_budget_history",
+      { sessionId: currentSession },
+    );
+    showBudgetPanel(m, hint, historyFresh.length ? historyFresh : history);
   } catch (e) {
     showContext("Контекст", String(e));
   }
@@ -1027,7 +1113,7 @@ btnAgentsReload.onclick = () => void openAgentsEditor();
 
 btnAgentsSave.onclick = async () => {
   try {
-    await invoke("save_agents_config", { content: agentsEditor.value });
+    await invoke("save_agents_config", { content: getAgentsEditorText() });
     appendStatus(
       "[eidos] agents.yaml сохранён. Параметры LLM подхватываются с диска на следующий запрос; шапка обновлена.",
     );

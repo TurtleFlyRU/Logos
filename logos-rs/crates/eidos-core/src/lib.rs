@@ -39,7 +39,10 @@ pub use desktop::{
 };
 pub use journal_list::{list_journal_markdown, JournalEntryPath};
 pub use semantic_store::SemanticStore;
-pub use session::{list_sessions, SessionRecord};
+pub use session::{
+    append_session_budget_snapshot, list_sessions, read_session_budget_history, BudgetSnapshot,
+    SessionRecord,
+};
 pub use episodic_store::EpisodicStore;
 pub use error::{CoreError, Result};
 pub use ml_client::{ml_sidecar_base_url, ml_sidecar_configured, ml_sidecar_health_check};

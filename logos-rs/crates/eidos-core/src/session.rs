@@ -142,3 +142,106 @@ fn now_ts() -> f64 {
         .map(|d| d.as_secs_f64())
         .unwrap_or(0.0)
 }
+
+const BUDGET_HISTORY_KEY: &str = "budget_history";
+const BUDGET_HISTORY_MAX: usize = 48;
+
+/// Точка тренда заполнения контекста для сессии (хранится в ``extra`` JSON сессии).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BudgetSnapshot {
+    pub ts: f64,
+    pub total_chars: u64,
+    pub total_budget: u64,
+    pub approx_prompt_tokens: u64,
+    /// Процент от лимита; ``None`` если бюджет не задан.
+    pub fill_pct: Option<f64>,
+}
+
+impl BudgetSnapshot {
+    pub fn from_usage(total_chars: u64, total_budget: u64, approx_prompt_tokens: u64) -> Self {
+        let fill_pct = if total_budget > 0 {
+            Some((total_chars as f64 / total_budget as f64) * 100.0)
+        } else {
+            None
+        };
+        Self {
+            ts: now_ts(),
+            total_chars,
+            total_budget,
+            approx_prompt_tokens,
+            fill_pct,
+        }
+    }
+}
+
+/// Добавить снимок в ``data/cli_sessions/<id>.json`` (поле ``budget_history``).
+pub fn append_session_budget_snapshot(
+    paths: &Paths,
+    session_id: &str,
+    snap: BudgetSnapshot,
+) -> Result<()> {
+    let path = paths.cli_session_path(session_id);
+    let now = now_ts();
+    let mut data: SessionRecord = if path.is_file() {
+        fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or(SessionRecord {
+                session_id: session_id.to_string(),
+                created_at: now,
+                updated_at: now,
+                transport: "eidos".into(),
+                extra: Value::Null,
+            })
+    } else {
+        SessionRecord {
+            session_id: session_id.to_string(),
+            created_at: now,
+            updated_at: now,
+            transport: "eidos".into(),
+            extra: Value::Null,
+        }
+    };
+    let mut extra = match data.extra {
+        Value::Object(map) => Value::Object(map),
+        _ => serde_json::Map::new().into(),
+    };
+    let obj = extra.as_object_mut().expect("object");
+    let hist = obj
+        .entry(BUDGET_HISTORY_KEY)
+        .or_insert_with(|| Value::Array(Vec::new()));
+    let arr = hist.as_array_mut().expect("array");
+    arr.push(serde_json::to_value(&snap)?);
+    if arr.len() > BUDGET_HISTORY_MAX {
+        let drop = arr.len() - BUDGET_HISTORY_MAX;
+        arr.drain(0..drop);
+    }
+    data.extra = extra;
+    data.updated_at = now;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let json = serde_json::to_string_pretty(&data)?;
+    atomic_write_bytes(&path, json.as_bytes())?;
+    Ok(())
+}
+
+/// История снимков бюджета для сессии (от старых к новым).
+pub fn read_session_budget_history(paths: &Paths, session_id: &str) -> Result<Vec<BudgetSnapshot>> {
+    let path = paths.cli_session_path(session_id);
+    if !path.is_file() {
+        return Ok(Vec::new());
+    }
+    let text = fs::read_to_string(&path)?;
+    let data: SessionRecord = serde_json::from_str(&text)?;
+    let Some(arr) = data.extra.get(BUDGET_HISTORY_KEY).and_then(|v| v.as_array()) else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for item in arr {
+        if let Ok(s) = serde_json::from_value::<BudgetSnapshot>(item.clone()) {
+            out.push(s);
+        }
+    }
+    Ok(out)
+}
