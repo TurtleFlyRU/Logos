@@ -253,8 +253,9 @@ cd logos-rs && cargo run -p eidos-cli -- chat --new
 
 - [x] Каркас crate: `cargo run -p eidos-lsp` → пути repo/data/WM, `crates/eidos-lsp/README.md`
 - [x] Desktop: CodeMirror YAML в редакторе agents; тренды бюджета (`budget_history` в `cli_sessions`)
-- [ ] `tower-lsp`, workspace = repo root
-- [ ] Custom requests памяти; опционально встроенный редактор в Tauri
+- [x] `tower-lsp` stdio: `workspace/executeCommand` — `eidos.sessionList`, `eidos.contextPreview`, `eidos.memorySearch`
+- [ ] Нативные custom LSP requests (`eidos/sessionList`); полнотекст journal через sidecar
+- [ ] Опционально: встроенный редактор в Tauri
 
 ### Фаза 7 — ML native (опционально)
 

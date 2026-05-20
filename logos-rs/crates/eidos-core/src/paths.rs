@@ -17,6 +17,20 @@ pub enum PathsError {
     RepoRootNotFound,
 }
 
+/// Обход вверх от ``start`` до каталога с ``eidos.py`` и ``kernel/``.
+#[must_use]
+pub fn repo_root_from_dir(mut start: PathBuf) -> Option<PathBuf> {
+    loop {
+        if start.join("eidos.py").is_file() && start.join("kernel").is_dir() {
+            return Some(start);
+        }
+        if !start.pop() {
+            break;
+        }
+    }
+    None
+}
+
 /// Корень git-репозитория Logos: `LOGOS_REPO_ROOT` или обход вверх от cwd до `eidos.py`.
 #[must_use]
 pub fn repo_root() -> Option<PathBuf> {
@@ -26,16 +40,19 @@ pub fn repo_root() -> Option<PathBuf> {
             return Some(p);
         }
     }
-    let mut dir = env::current_dir().ok()?;
-    loop {
-        if dir.join("eidos.py").is_file() && dir.join("kernel").is_dir() {
-            return Some(dir);
-        }
-        if !dir.pop() {
-            break;
-        }
+    env::current_dir().ok().and_then(repo_root_from_dir)
+}
+
+/// Пути при известном корне репозитория (для LSP ``rootUri`` / ``workspaceFolders``).
+pub fn resolve_paths_from_repo(repo_root: &Path) -> Result<Paths, PathsError> {
+    if !repo_root.join("eidos.py").is_file() || !repo_root.join("kernel").is_dir() {
+        return Err(PathsError::RepoRootNotFound);
     }
-    None
+    load_repo_dotenv(repo_root);
+    Ok(Paths {
+        repo_root: repo_root.to_path_buf(),
+        data_root: data_root(repo_root),
+    })
 }
 
 /// `LOGOS_DATA_ROOT` или `<repo>/data`.
@@ -57,12 +74,7 @@ pub fn load_repo_dotenv(repo: &Path) {
 /// Разрешить пути для текущего процесса.
 pub fn resolve_paths() -> Result<Paths, PathsError> {
     let repo_root = repo_root().ok_or(PathsError::RepoRootNotFound)?;
-    load_repo_dotenv(&repo_root);
-    let data_root = data_root(&repo_root);
-    Ok(Paths {
-        repo_root,
-        data_root,
-    })
+    resolve_paths_from_repo(&repo_root)
 }
 
 impl Paths {

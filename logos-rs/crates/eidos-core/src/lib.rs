@@ -40,13 +40,15 @@ pub use desktop::{
 pub use journal_list::{list_journal_markdown, JournalEntryPath};
 pub use semantic_store::SemanticStore;
 pub use session::{
-    append_session_budget_snapshot, list_sessions, read_session_budget_history, BudgetSnapshot,
-    SessionRecord,
+    append_session_budget_snapshot, list_sessions, read_latest, read_session_budget_history,
+    BudgetSnapshot, SessionRecord,
 };
 pub use episodic_store::EpisodicStore;
 pub use error::{CoreError, Result};
 pub use ml_client::{ml_sidecar_base_url, ml_sidecar_configured, ml_sidecar_health_check};
-pub use paths::{data_root, repo_root, resolve_paths, Paths};
+pub use paths::{
+    data_root, repo_root, repo_root_from_dir, resolve_paths, resolve_paths_from_repo, Paths,
+};
 pub use working_memory::WorkingMemory;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

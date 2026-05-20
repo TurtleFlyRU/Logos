@@ -1,0 +1,21 @@
+// Скопируйте в User Settings или .vscode/settings.json (корень Logos).
+// Сначала: cargo build -p eidos-lsp
+// Расширение: glspc (torokati44.glspc) из Marketplace.
+
+{
+  "glspc.serverPath": "${workspaceFolder}/logos-rs/scripts/eidos-lsp.sh"
+}
+
+// Альтернатива — vscode-lsp-generic (maximsmol.vscode-lsp-generic):
+// {
+//   "lsp_generic_client": {
+//     "servers": {
+//       "eidos": {
+//         "name": "Eidos",
+//         "path": "${workspaceFolder}/logos-rs/target/debug/eidos-lsp",
+//         "args": [],
+//         "documentSelector": ["markdown", "yaml", "plaintext"]
+//       }
+//     }
+//   }
+// }

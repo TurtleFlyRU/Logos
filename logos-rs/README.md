@@ -10,7 +10,7 @@
 | `eidos-protocol` | Типы WM, chat, agents.yaml |
 | `eidos-core` | Пути, WM, LLM, context, episodic SQLite, tools, sidecar |
 | `eidos-cli` | Бинарь `eidos` |
-| `eidos-lsp` | Заглушка (фаза 6) |
+| `eidos-lsp` | stdio LSP + `eidos.sessionList` / `contextPreview` / `memorySearch` (фаза 6) |
 
 ## `eidos chat` (фаза 2)
 
