@@ -26,7 +26,7 @@ cargo run -p eidos-cli -- chat --new
 
 | Переменная | Эффект |
 |------------|--------|
-| `EIDOS_RUST_NO_SIDECAR=1` | новый Python на каждый RPC (**браузер Playwright не держит сессию между вызовами**; для `browser_*` в `eidos chat` нужен долгоживущий sidecar) |
+| `EIDOS_RUST_NO_SIDECAR=1` | без долгоживущего Python sidecar: `memory_*` в Rust (episodic/semantic/journal + **лексический** `memory_search_external`); **браузер** `browser_*` не держит сессию между вызовами |
 | `EIDOS_PLAYWRIGHT` | по умолчанию **вкл.** — инструменты `browser_*` в Rust-чате через sidecar; `0`/`false`/`no`/`off` — выкл.; нужны `playwright` + браузерные зависимости |
 | `EIDOS_HTTP_FETCH` | по умолчанию **вкл.** — инструмент `fetch_https_url` (GET публичных URL); `0`/`false`/`no`/`off` — выкл. |
 | `EIDOS_RUST_BOOT=1` | краткий Rust-boot |

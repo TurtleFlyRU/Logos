@@ -11,6 +11,7 @@ pub mod context_system_extra;
 pub mod context_wm_summary;
 pub mod desktop;
 pub mod episodic_store;
+pub mod external_store;
 pub mod error;
 pub mod journal_list;
 pub mod memory_tools;

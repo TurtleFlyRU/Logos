@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 
 use crate::episodic_store::EpisodicStore;
 use crate::error::{CoreError, Result};
+use crate::external_store::search_external_lexical;
 use crate::paths::Paths;
 use crate::semantic_store::SemanticStore;
 
@@ -100,6 +101,22 @@ pub fn memory_tool_specs() -> Vec<Value> {
                 }
             }
         }),
+        json!({
+            "type": "function",
+            "function": {
+                "name": "memory_search_external",
+                "description": "Поиск по external documents.db (Rust: лексика; Python sidecar: вектора).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string" },
+                        "top_k": { "type": "integer" },
+                        "min_score": { "type": "number" }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }),
     ]
 }
 
@@ -118,10 +135,7 @@ fn execute_memory_tool_inner(paths: &Paths, name: &str, arguments_json: &str) ->
         "memory_list_semantic" => list_semantic(paths, &args),
         "memory_search_journal" => search_journal(paths, &args),
         "memory_read_journal" => read_journal(paths, &args),
-        "memory_search_external" => Ok(json!({
-            "error": "external search requires Python sidecar (vectors)",
-            "hits": []
-        })),
+        "memory_search_external" => search_external(paths, &args),
         _ => Err(CoreError::Tool(format!("неизвестный memory tool: {name}"))),
     }
 }
@@ -257,6 +271,32 @@ fn search_journal(paths: &Paths, args: &Value) -> Result<Value> {
     Ok(json!({ "count": hits.len(), "hits": hits, "backend": "rust_lexical" }))
 }
 
+fn search_external(paths: &Paths, args: &Value) -> Result<Value> {
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+    let top_k = args
+        .get("top_k")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(8)
+        .clamp(1, 20) as usize;
+    let mut out = search_external_lexical(paths, query, top_k)?;
+    if let Some(min_score) = args.get("min_score").and_then(|v| v.as_f64()) {
+        if let Some(hits) = out.get_mut("hits").and_then(|v| v.as_array_mut()) {
+            hits.retain(|h| {
+                h.get("score")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+                    >= min_score
+            });
+            out["count"] = json!(hits.len());
+        }
+    }
+    Ok(out)
+}
+
 fn read_journal(paths: &Paths, args: &Value) -> Result<Value> {
     let mut name = args
         .get("filename")
@@ -315,6 +355,7 @@ pub fn format_memory_help_rust() -> String {
         "Память Эйдос (справка)".to_string(),
         String::new(),
         "Пассивно: блок active_memory в system (Python sidecar при обычном чате).".to_string(),
+        "external: Rust — лексика по documents.db; вектора — Python sidecar.".to_string(),
         format!("Tools memory_*: {}", if tools { "вкл." } else { "выкл." }),
         String::new(),
         "Документация: docs/MEMORY_AGENT_ACCESS.md".to_string(),
