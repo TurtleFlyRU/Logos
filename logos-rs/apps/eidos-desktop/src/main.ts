@@ -484,7 +484,9 @@ function showBudgetPanel(m: ContextMetricsDto, draftHint: string) {
 
 function buildBudgetHtml(m: ContextMetricsDto, draftHint: string): string {
   const budget = m.total_budget;
-  const used = m.total_chars;
+  const used = Math.max(0, m.total_chars);
+  /** При uncapped бюджете полосы слоёв считают долю от текущего промпта, иначе — от лимита. */
+  const layerDenominator = budget > 0 ? budget : Math.max(used, 1);
   const pctFill = budget > 0 ? Math.min(100, (used / budget) * 100) : 0;
   const pctStr = budget > 0 ? pctFill.toFixed(1) : "—";
   const free = budget > 0 ? Math.max(0, budget - used) : 0;
@@ -511,13 +513,17 @@ function buildBudgetHtml(m: ContextMetricsDto, draftHint: string): string {
     const on = m.layers[key];
     const onLabel = on === undefined ? "" : on ? "вкл." : "выкл.";
     const label = LAYER_LABELS[key] ?? key;
-    const barPct = budget > 0 ? Math.min(100, (ch / budget) * 100) : 0;
+    const barPct = Math.min(100, (ch / layerDenominator) * 100);
     const barClass =
       barPct > 85 ? "budget-bar-fill budget-bar-fill-high" : "budget-bar-fill";
+    const shareHint =
+      budget <= 0
+        ? ` · ${barPct.toFixed(1)}% промпта`
+        : "";
     layerRows.push(`<div class="budget-layer">
       <div class="budget-layer-head">
         <span class="budget-layer-name">${escapeHtml(label)} <code>${escapeHtml(key)}</code></span>
-        <span class="budget-layer-meta">${ch.toLocaleString()} симв. · ~${tok.toLocaleString()} tok${onLabel ? ` · ${escapeHtml(onLabel)}` : ""}</span>
+        <span class="budget-layer-meta">${ch.toLocaleString()} симв. · ~${tok.toLocaleString()} tok${onLabel ? ` · ${escapeHtml(onLabel)}` : ""}${shareHint}</span>
       </div>
       <div class="budget-bar-track"><div class="${barClass}" style="width:${barPct.toFixed(1)}%"></div></div>
     </div>`);
@@ -533,19 +539,30 @@ function buildBudgetHtml(m: ContextMetricsDto, draftHint: string): string {
       ? "budget-bar-fill budget-bar-fill-high"
       : "budget-bar-fill";
 
+  const uncappedHint =
+    budget <= 0
+      ? `<p class="budget-uncapped-hint">Лимит символов не задан (<code>EIDOS_CHAT_TOTAL_CHARS</code>). Ниже — <strong>доля каждого слоя</strong> от текущего размера промпта (${used.toLocaleString()} симв.); общий «% заполнения» к лимиту недоступен.</p>`
+      : "";
+
+  const mainBarBlock =
+    budget > 0
+      ? `<div class="budget-bar-track budget-bar-total"><div class="${mainBarClass}" style="width:${Math.min(100, pctFill).toFixed(1)}%"></div></div>`
+      : "";
+
   const reportRaw = m.budget_report?.trim() || "—";
   const reportHtml = escapeHtml(reportRaw);
 
   return `<div class="budget-root">
     ${draftBlock}
+    ${uncappedHint}
     <section class="budget-summary">
       <div class="budget-stat">
         <span class="budget-stat-label">Символов в промпте</span>
         <span class="budget-stat-value">${used.toLocaleString()} / ${budget > 0 ? budget.toLocaleString() : "∞"}</span>
       </div>
       <div class="budget-stat">
-        <span class="budget-stat-label">Заполнение</span>
-        <span class="budget-stat-value ${over ? "budget-over" : ""}">${pctStr}%</span>
+        <span class="budget-stat-label">Заполнение лимита</span>
+        <span class="budget-stat-value ${over ? "budget-over" : ""}">${budget > 0 ? `${pctStr}%` : "—"}</span>
       </div>
       <div class="budget-stat">
         <span class="budget-stat-label">Свободно</span>
@@ -556,7 +573,7 @@ function buildBudgetHtml(m: ContextMetricsDto, draftHint: string): string {
         <span class="budget-stat-value">~${m.approx_prompt_tokens.toLocaleString()}</span>
       </div>
     </section>
-    <div class="budget-bar-track budget-bar-total"><div class="${mainBarClass}" style="width:${budget > 0 ? Math.min(100, pctFill).toFixed(1) : 0}%"></div></div>
+    ${mainBarBlock}
     <section class="budget-wm-msg">
       <h3 class="budget-section-title">События в промпте</h3>
       <div class="budget-chips">

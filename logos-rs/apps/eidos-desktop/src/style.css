@@ -269,6 +269,21 @@ header button.primary {
   font-size: 0.76rem;
 }
 
+.budget-uncapped-hint {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(139, 149, 168, 0.15);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.budget-uncapped-hint code {
+  font-size: 0.7rem;
+}
+
 .budget-summary {
   display: grid;
   grid-template-columns: 1fr 1fr;
