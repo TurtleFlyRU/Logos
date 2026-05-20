@@ -226,6 +226,7 @@ cd logos-rs && cargo run -p eidos-cli -- chat --new
 
 ### Фаза 4 — Контекст и пайплайны (4–6 нед., в работе)
 
+- [x] On-demand memory tools (`memory_*`) — см. [MEMORY_AGENT_ACCESS.md](MEMORY_AGENT_ACCESS.md)
 - [x] Модуль `context_budget`: `EIDOS_CHAT_TOTAL_CHARS`, усечение истории и system.
 - [x] Модуль `context_wm_summary`: при `EIDOS_CHAT_TOTAL_CHARS` > 0 и `EIDOS_CHAT_SUMMARIZE_OLD_WM=1` — ранняя история сворачивается в system (timeline; без `compress_episode`).
 - [x] Активная память в **Rust**-ветке: sidecar op `active_memory_block` → `format_active_memory_retrieval_block` (full pipeline в Python).

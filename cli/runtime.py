@@ -91,7 +91,9 @@ def _cli_chat_llm_reply(
                 tcid = str(tc.get("id") or "")
                 if progress_echo_enabled():
                     print(f"[eidos] tool {name}", flush=True)
-                result = execute_tool(name, args, registry=instrumental)
+                result = execute_tool(
+                    name, args, registry=instrumental, memory=memory
+                )
                 memory.working.add_event(
                     {
                         "role": "tool",

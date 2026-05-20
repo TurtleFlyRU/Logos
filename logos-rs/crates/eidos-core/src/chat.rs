@@ -12,7 +12,10 @@ use crate::context::assistant_message_for_api;
 use crate::error::{CoreError, Result};
 use crate::llm::chat_completion_assistant_message;
 use crate::paths::{resolve_paths, Paths};
-use crate::py_sidecar::{PipelineAction, Sidecar};
+use crate::memory_tools::{
+    execute_memory_tool, is_memory_tool_name, memory_tool_specs, memory_tools_enabled,
+};
+use crate::py_sidecar::{self, PipelineAction, Sidecar};
 use crate::session::{
     is_uuid, new_session_id, normalize_session_id, read_latest, touch_session, write_latest,
 };
@@ -281,6 +284,16 @@ pub(crate) fn cli_chat_llm_reply(
     }
 
     let mut tool_specs = builtin_tool_specs();
+    if memory_tools_enabled() {
+        if py_sidecar::env_no_sidecar() {
+            tool_specs.extend(memory_tool_specs());
+        } else {
+            match sidecar.memory_tool_specs() {
+                Ok(mut extra) => tool_specs.append(&mut extra),
+                Err(e) => eprintln!("[eidos] memory_tool_specs: {e}"),
+            }
+        }
+    }
     if playwright_tools_enabled() {
         match sidecar.playwright_tool_specs() {
             Ok(mut extra) => tool_specs.append(&mut extra),
@@ -323,6 +336,15 @@ pub(crate) fn cli_chat_llm_reply(
                         match sidecar.playwright_execute(name, args) {
                             Ok(s) => s,
                             Err(e) => json!({ "error": format!("{e}") }).to_string(),
+                        }
+                    } else if is_memory_tool_name(name) {
+                        if py_sidecar::env_no_sidecar() {
+                            execute_memory_tool(paths, name, args)
+                        } else {
+                            match sidecar.memory_execute(name, args) {
+                                Ok(s) => s,
+                                Err(e) => json!({ "error": format!("{e}") }).to_string(),
+                            }
                         }
                     } else {
                         execute_tool(paths, name, args)

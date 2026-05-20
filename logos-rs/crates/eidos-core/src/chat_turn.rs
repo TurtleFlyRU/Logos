@@ -98,6 +98,19 @@ pub fn process_chat_turn<'a>(input: ChatTurnInput<'a>) -> Result<ChatTurnOutput>
             streamed: false,
         });
     }
+    if low == "/memory" || low.starts_with("/memory ") {
+        wm.reload();
+        let text = sidecar
+            .memory_help()
+            .unwrap_or_else(|_| crate::memory_tools::format_memory_help_rust());
+        return Ok(ChatTurnOutput {
+            reply: None,
+            pipeline_text: Some(text),
+            llm_status: None,
+            status_warning: None,
+            streamed: false,
+        });
+    }
 
     let stream_sink_active = on_stream_delta.is_some();
     let mut on_stream_delta = on_stream_delta;

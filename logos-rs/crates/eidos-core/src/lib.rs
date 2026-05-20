@@ -13,6 +13,7 @@ pub mod desktop;
 pub mod episodic_store;
 pub mod error;
 pub mod journal_list;
+pub mod memory_tools;
 pub mod llm;
 pub mod llm_stream;
 pub mod llm_sanitize;

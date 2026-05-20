@@ -30,6 +30,12 @@ from cli.browser_tools import (
     playwright_tool_names,
     playwright_tool_specs,
 )
+from cli.memory_tools import (
+    execute_memory_tool,
+    is_memory_tool_name,
+    memory_tool_specs,
+    memory_tools_enabled,
+)
 from kernel.config import REPO_ROOT
 from kernel.instrumental import InstrumentalRegistry
 
@@ -288,6 +294,8 @@ def builtin_tool_specs() -> list[dict[str, Any]]:
         )
     if playwright_tool_enabled():
         specs.extend(playwright_tool_specs())
+    if memory_tools_enabled():
+        specs.extend(memory_tool_specs())
     return specs
 
 
@@ -319,6 +327,7 @@ def execute_tool(
     arguments_json: str,
     *,
     registry: InstrumentalRegistry | None,
+    memory: Any | None = None,
 ) -> str:
     """Выполнить один инструмент; результат — строка для роли ``tool``."""
     tid: int | None = None
@@ -335,6 +344,12 @@ def execute_tool(
 
         if name in playwright_tool_names():
             out = execute_browser_tool(name, args)
+        elif is_memory_tool_name(name):
+            if memory is None:
+                from kernel.memory import Memory
+
+                memory = Memory(auto_boot=False)
+            out = execute_memory_tool(memory, name, args)
         elif name == "eidos_echo":
             text = str(args.get("text", ""))
             out = text

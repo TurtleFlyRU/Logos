@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use crate::error::{CoreError, Result};
 use crate::paths::Paths;
 
-fn env_no_sidecar() -> bool {
+pub(crate) fn env_no_sidecar() -> bool {
     matches!(
         std::env::var("EIDOS_RUST_NO_SIDECAR").as_deref(),
         Ok("1") | Ok("true") | Ok("yes") | Ok("on")
@@ -143,6 +143,29 @@ impl Sidecar {
             "name": name,
             "arguments_json": arguments_json,
         }))?;
+        Ok(r.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    pub fn memory_tool_specs(&mut self) -> Result<Vec<Value>> {
+        let r = self.call(json!({"op": "memory_tool_specs"}))?;
+        let specs = r.get("specs").cloned().unwrap_or(Value::Array(vec![]));
+        match specs {
+            Value::Array(arr) => Ok(arr),
+            _ => Ok(vec![]),
+        }
+    }
+
+    pub fn memory_execute(&mut self, name: &str, arguments_json: &str) -> Result<String> {
+        let r = self.call(json!({
+            "op": "memory_execute",
+            "name": name,
+            "arguments_json": arguments_json,
+        }))?;
+        Ok(r.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    pub fn memory_help(&mut self) -> Result<String> {
+        let r = self.call(json!({"op": "memory_help"}))?;
         Ok(r.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string())
     }
 

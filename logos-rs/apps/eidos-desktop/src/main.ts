@@ -70,6 +70,7 @@ const LS_KEY_SLASH_HINTS = "eidosDesktop.slashHints";
 
 const SLASH_COMMANDS: SlashCommandItem[] = [
   { cmd: "/budget", desc: "Визуальный бюджет контекста" },
+  { cmd: "/memory", desc: "Память: active block + tools memory_*" },
   { cmd: "/env", desc: "Все переменные окружения" },
   { cmd: "/env active", desc: "Только активные EIDOS_*" },
   { cmd: "/env all", desc: "Алиас полного отчёта env" },

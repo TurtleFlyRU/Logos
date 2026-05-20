@@ -33,6 +33,7 @@ cargo run -p eidos-cli -- chat --new
 | `EIDOS_RUST_CONTEXT=1` | упрощённый system prompt в Rust |
 | `EIDOS_CHAT_SUMMARIZE_OLD_WM=1` | при **Rust**-контексте и `EIDOS_CHAT_TOTAL_CHARS` > 0 — сжать ранний хвост WM в system (timeline) |
 | `EIDOS_CHAT_ACTIVE_MEMORY=0` | не вызывать `active_memory_block` в Rust-ветке (по умолчанию вкл.) |
+| `EIDOS_MEMORY_TOOLS=0` | не передавать LLM tools `memory_*` (по умолчанию вкл. при `EIDOS_TOOLS=1`) |
 | `EIDOS_CHAT_TOTAL_CHARS` | лимит символов промпта в **Rust**-сборке |
 | `EIDOS_CHAT_LAYER_BUDGET` | при заданном `EIDOS_CHAT_TOTAL_CHARS` по умолчанию **вкл.** — extra system собирается по слоям с остаточным бюджетом (как Python 8.1); `0` — полные блоки как в `build_chat_context` |
 | `EIDOS_STREAM` | `1` — SSE-дельты в stdout (CLI) |

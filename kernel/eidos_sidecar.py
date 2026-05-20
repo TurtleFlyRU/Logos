@@ -247,6 +247,41 @@ def _dispatch(req: dict[str, Any]) -> dict[str, Any]:
             return _err(f"{exc!s}\n{tb}")
         return _ok({"text": text})
 
+    if op == "memory_tool_specs":
+        from cli.memory_tools import memory_tool_specs, memory_tools_enabled
+
+        if not memory_tools_enabled():
+            return _ok({"specs": []})
+        return _ok({"specs": memory_tool_specs()})
+
+    if op == "memory_execute":
+        from cli.memory_tools import execute_memory_tool, is_memory_tool_name
+
+        name = str(req.get("name") or "").strip()
+        if not is_memory_tool_name(name):
+            return _err(f"not a memory tool: {name!r}")
+        raw = req.get("arguments_json")
+        if raw is None:
+            raw = req.get("arguments")
+        if isinstance(raw, dict):
+            args = raw
+        else:
+            try:
+                args = json.loads(str(raw or "{}"))
+            except json.JSONDecodeError as exc:
+                return _err(f"arguments JSON: {exc}")
+        try:
+            text = execute_memory_tool(_memory(), name, args)
+        except Exception as exc:
+            tb = traceback.format_exc(limit=6)
+            return _err(f"{exc!s}\n{tb}")
+        return _ok({"text": text})
+
+    if op == "memory_help":
+        from cli.memory_tools import format_memory_help
+
+        return _ok({"text": format_memory_help()})
+
     return _err(f"unknown op: {op!r}")
 
 
