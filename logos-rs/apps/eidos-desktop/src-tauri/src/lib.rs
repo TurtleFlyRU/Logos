@@ -222,6 +222,18 @@ fn get_pipeline_help(state: State<Mutex<AppState>>) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn get_tools_help(state: State<Mutex<AppState>>) -> Result<String, String> {
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    guard.runtime.tools_help().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn get_memory_help(state: State<Mutex<AppState>>) -> Result<String, String> {
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    guard.runtime.memory_help().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn run_sleep(state: State<Mutex<AppState>>, force: bool) -> Result<SleepResult, String> {
     let guard = state.lock().map_err(|e| e.to_string())?;
     guard.runtime.run_sleep(force).map_err(|e| e.to_string())
@@ -299,6 +311,8 @@ pub fn run() {
             get_budget_report,
             get_context_metrics,
             get_pipeline_help,
+            get_tools_help,
+            get_memory_help,
             run_sleep,
             get_settings,
             get_agents_editor_state,

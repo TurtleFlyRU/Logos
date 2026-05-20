@@ -10,6 +10,8 @@
 - EIDOS_PLAYWRIGHT_ALLOW_LOCALHOST — ``1``: разрешить localhost/приватные IP для browser tools.
 - EIDOS_PLAYWRIGHT_PROXY_SERVER / USERNAME / PASSWORD / BYPASS — явный прокси для Chromium.
 - EIDOS_PLAYWRIGHT_IGNORE_PROXY — ``1``: запустить Chromium с ``--no-proxy-server``.
+- EIDOS_TOOL_SEARCH — ``1`` (по умолчанию): отложенная загрузка tools (``eidos_tool_search``).
+- EIDOS_TOOL_SEARCH_NATIVE — ``1``: нативный OpenAI ``tool_search`` + ``defer_loading``.
 - LLM_IGNORE_PROXY — как в ``cli.llm``: ``1`` отключает системный прокси для httpx.
 """
 

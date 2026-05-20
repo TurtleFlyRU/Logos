@@ -10,6 +10,34 @@ use crate::paths::Paths;
 
 const MAX_READ_FILE_BYTES: u64 = 65_536;
 
+pub fn tool_search_enabled() -> bool {
+    if !tools_enabled() {
+        return false;
+    }
+    let v = std::env::var("EIDOS_TOOL_SEARCH")
+        .unwrap_or_else(|_| "1".into())
+        .to_ascii_lowercase();
+    !matches!(v.as_str(), "0" | "false" | "no" | "off")
+}
+
+pub const TOOL_SEARCH_FN: &str = "eidos_tool_search";
+
+pub fn is_tool_search_meta_name(name: &str) -> bool {
+    name.trim() == TOOL_SEARCH_FN
+}
+
+/// Краткая справка для ``/tools`` без Python sidecar.
+pub fn format_tools_help_rust() -> String {
+    let tools = tools_enabled();
+    let search = tool_search_enabled();
+    format!(
+        "Инструменты Эйдос\n\nEIDOS_TOOLS={}\nEIDOS_TOOL_SEARCH={}\n\n\
+         Полный каталог: запустите с Python sidecar или ``/tools`` в CLI.\n",
+        if tools { "on" } else { "off" },
+        if search { "on" } else { "off" },
+    )
+}
+
 pub fn tools_enabled() -> bool {
     let v = std::env::var("EIDOS_TOOLS")
         .unwrap_or_else(|_| "1".into())

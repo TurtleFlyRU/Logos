@@ -71,6 +71,7 @@ const LS_KEY_SLASH_HINTS = "eidosDesktop.slashHints";
 const SLASH_COMMANDS: SlashCommandItem[] = [
   { cmd: "/budget", desc: "Визуальный бюджет контекста" },
   { cmd: "/memory", desc: "Память: active block + tools memory_*" },
+  { cmd: "/tools", desc: "Каталог tools, tool_search, env" },
   { cmd: "/env", desc: "Все переменные окружения" },
   { cmd: "/env active", desc: "Только активные EIDOS_*" },
   { cmd: "/env all", desc: "Алиас полного отчёта env" },
@@ -111,7 +112,7 @@ interface BudgetSnapshotDto {
 const UI_BUILD_ID = "send-ui-20250520f";
 
 const INPUT_PLACEHOLDER_IDLE =
-  "Сообщение… (/options, /pipeline, /run, /review)";
+  "Сообщение… (/tools, /options, /pipeline, /run, /review)";
 
 const app = document.getElementById("app")!;
 
@@ -699,6 +700,18 @@ async function send() {
     await openOptionsPanel();
     return;
   }
+  if (low === "/memory" || low.startsWith("/memory ")) {
+    inputEl.value = "";
+    const body = await invoke<string>("get_memory_help");
+    showContext("Память", body);
+    return;
+  }
+  if (low === "/tools" || low.startsWith("/tools ")) {
+    inputEl.value = "";
+    const body = await invoke<string>("get_tools_help");
+    showContext("Инструменты", body);
+    return;
+  }
 
   await submitChatMessage(text);
 }
@@ -770,6 +783,7 @@ const LAYER_LABELS: Record<string, string> = {
   wm_plan_focus: "План WM",
   attention: "Внимание",
   active_memory: "Активная память",
+  tools_catalog: "Инструменты",
   boot_snippet: "Boot",
   principles: "Принципы",
   other: "Прочее",

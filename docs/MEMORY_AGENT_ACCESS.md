@@ -42,6 +42,7 @@ LSP отложен. Этот документ — план и чеклист **P
 
 - [x] `memory_read_journal`, `memory_search_external` в Python
 - [x] Slash `/memory` в `chat_turn.rs` + desktop (справка по tools и pipeline)
+- [x] Slash `/tools` — каталог + tool search (`cli/tool_catalog.py`, `cli/tool_search.py`)
 - [x] `logos-rs/README.md` — env `EIDOS_MEMORY_TOOLS`
 
 ### P2 — Rust-native fallback (без sidecar)

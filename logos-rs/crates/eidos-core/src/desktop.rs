@@ -296,6 +296,20 @@ impl DesktopRuntime {
         }
     }
 
+    /// Каталог инструментов и tool search (``/tools``).
+    pub fn tools_help(&mut self) -> Result<String> {
+        self.sidecar
+            .tools_help()
+            .or_else(|_| Ok(crate::tools::format_tools_help_rust()))
+    }
+
+    /// Справка по памяти (``/memory``).
+    pub fn memory_help(&mut self) -> Result<String> {
+        self.sidecar
+            .memory_help()
+            .or_else(|_| Ok(crate::memory_tools::format_memory_help_rust()))
+    }
+
     /// Запуск ``python3 eidos.py sleep`` (пайплайн памяти, как в CLI).
     pub fn run_sleep(&self, force: bool) -> Result<SleepResult> {
         let eidos = self.paths.repo_root.join("eidos.py");

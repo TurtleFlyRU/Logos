@@ -111,6 +111,19 @@ pub fn process_chat_turn<'a>(input: ChatTurnInput<'a>) -> Result<ChatTurnOutput>
             streamed: false,
         });
     }
+    if low == "/tools" || low.starts_with("/tools ") {
+        wm.reload();
+        let text = sidecar
+            .tools_help()
+            .unwrap_or_else(|_| crate::tools::format_tools_help_rust());
+        return Ok(ChatTurnOutput {
+            reply: None,
+            pipeline_text: Some(text),
+            llm_status: None,
+            status_warning: None,
+            streamed: false,
+        });
+    }
 
     let stream_sink_active = on_stream_delta.is_some();
     let mut on_stream_delta = on_stream_delta;

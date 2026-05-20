@@ -58,6 +58,10 @@ pub fn principles_enabled() -> bool {
     env_flag("EIDOS_CHAT_PRINCIPLES", true)
 }
 
+pub fn tools_catalog_enabled() -> bool {
+    env_flag("EIDOS_TOOLS", true)
+}
+
 fn cli_wm_plan_max_chars() -> usize {
     std::env::var("EIDOS_CHAT_CLI_PLAN_CHARS")
         .ok()
@@ -287,6 +291,14 @@ pub fn build_system_extra_with_budget(
 
     add_layer(&mut parts, &mut rem, &format_user_identity_block(wm, persona));
 
+    if tools_catalog_enabled() && rem > 0 {
+        let cap = rem.min(4000);
+        match sidecar.tools_catalog_block(user_message, cap as u64) {
+            Ok(block) => add_layer(&mut parts, &mut rem, &block),
+            Err(e) => eprintln!("[eidos] tools_catalog_block: {e}"),
+        }
+    }
+
     if cli_plan_enabled() && rem > 0 {
         let cap = rem.min(cli_wm_plan_max_chars());
         add_layer(
@@ -341,6 +353,17 @@ pub fn build_chat_context_full(
         let s = format_user_identity_block(wm, persona);
         if !s.is_empty() {
             parts.push(s);
+        }
+    }
+    if tools_catalog_enabled() {
+        match sidecar.tools_catalog_block(user_message, 4000) {
+            Ok(block) => {
+                let t = block.trim();
+                if !t.is_empty() {
+                    parts.push(t.to_string());
+                }
+            }
+            Err(e) => eprintln!("[eidos] tools_catalog_block: {e}"),
         }
     }
     if cli_plan_enabled() {

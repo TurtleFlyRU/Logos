@@ -20,8 +20,9 @@ use crate::session::{
     is_uuid, new_session_id, normalize_session_id, read_latest, touch_session, write_latest,
 };
 use crate::tools::{
-    builtin_tool_specs, execute_tool, is_playwright_tool_name, max_tool_rounds,
-    playwright_tools_enabled, progress_echo_enabled, tools_enabled,
+    builtin_tool_specs, execute_tool, is_playwright_tool_name, is_tool_search_meta_name,
+    max_tool_rounds, playwright_tools_enabled, progress_echo_enabled, tool_search_enabled,
+    tools_enabled,
 };
 use crate::working_memory::{
     clear_working_memory, make_cli_chat_event_full, WorkingMemory,
@@ -283,29 +284,49 @@ pub(crate) fn cli_chat_llm_reply(
         });
     }
 
-    let mut tool_specs = builtin_tool_specs();
-    if memory_tools_enabled() {
-        if py_sidecar::env_no_sidecar() {
-            tool_specs.extend(memory_tool_specs());
-        } else {
-            match sidecar.memory_tool_specs() {
-                Ok(mut extra) => tool_specs.append(&mut extra),
-                Err(e) => eprintln!("[eidos] memory_tool_specs: {e}"),
+    let use_sidecar_tool_search = tool_search_enabled() && !py_sidecar::env_no_sidecar();
+    let mut loaded_tools: Vec<String> = Vec::new();
+
+    let mut tool_specs = if use_sidecar_tool_search {
+        match sidecar.tool_search_build_specs(&loaded_tools) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[eidos] tool_search_build_specs: {e}");
+                builtin_tool_specs()
             }
         }
-    }
-    if playwright_tools_enabled() {
-        match sidecar.playwright_tool_specs() {
-            Ok(mut extra) => tool_specs.append(&mut extra),
-            Err(e) => eprintln!("[eidos] playwright_tool_specs: {e}"),
+    } else {
+        let mut specs = builtin_tool_specs();
+        if memory_tools_enabled() {
+            if py_sidecar::env_no_sidecar() {
+                specs.extend(memory_tool_specs());
+            } else {
+                match sidecar.memory_tool_specs() {
+                    Ok(mut extra) => specs.append(&mut extra),
+                    Err(e) => eprintln!("[eidos] memory_tool_specs: {e}"),
+                }
+            }
         }
-    }
+        if playwright_tools_enabled() {
+            match sidecar.playwright_tool_specs() {
+                Ok(mut extra) => specs.append(&mut extra),
+                Err(e) => eprintln!("[eidos] playwright_tool_specs: {e}"),
+            }
+        }
+        specs
+    };
 
     let max_r = max_tool_rounds();
     let mut messages = messages.to_vec();
     let mut had_tool_rounds = false;
 
     for _round in 0..max_r {
+        if use_sidecar_tool_search {
+            match sidecar.tool_search_build_specs(&loaded_tools) {
+                Ok(s) => tool_specs = s,
+                Err(e) => eprintln!("[eidos] tool_search_build_specs: {e}"),
+            }
+        }
         let amsg =
             chat_completion_assistant_message(messages.as_slice(), params, Some(&tool_specs))?;
         if let Some(tcalls_val) = amsg.get("tool_calls").and_then(|v| v.as_array()) {
@@ -330,9 +351,21 @@ pub(crate) fn cli_chat_llm_reply(
                     let name = &tc.function.name;
                     let args = &tc.function.arguments;
                     if progress_echo_enabled() {
-                        eprintln!("[eidos] tool {name}");
+                        if is_tool_search_meta_name(name) {
+                            eprintln!("[eidos] tool_search");
+                        } else {
+                            eprintln!("[eidos] tool {name}");
+                        }
                     }
-                    let result = if is_playwright_tool_name(name) {
+                    let result = if use_sidecar_tool_search && is_tool_search_meta_name(name) {
+                        match sidecar.tool_search_execute(&loaded_tools, args) {
+                            Ok((text, new_loaded)) => {
+                                loaded_tools = new_loaded;
+                                text
+                            }
+                            Err(e) => json!({ "error": format!("{e}") }).to_string(),
+                        }
+                    } else if is_playwright_tool_name(name) {
                         match sidecar.playwright_execute(name, args) {
                             Ok(s) => s,
                             Err(e) => json!({ "error": format!("{e}") }).to_string(),

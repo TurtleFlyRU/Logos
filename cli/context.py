@@ -23,6 +23,9 @@
 
 - ``EIDOS_CHAT_TOOLS_ON_IDENTITY`` — ``1``: разрешить tool_calls даже на короткие вопросы «кто я» и т.п.
   (по умолчанию для таких реплик инструменты **не** передаются в API — только текст из памяти в system).
+- Каталог инструментов в system — всегда при ``EIDOS_TOOLS=1`` (см. ``cli/tool_catalog.py``).
+- ``EIDOS_TOOL_SEARCH`` — ``1`` (по умолчанию): отложенная загрузка tools (``eidos_tool_search``).
+  с актуальным списком (``cli/tool_catalog.py``, тот же источник, что ``tools`` в API).
 
 WM / boot / принципы (статичный блок в system)
 - ``EIDOS_CHAT_ATTENTION``, ``EIDOS_CHAT_BOOT_SNIPPET``, ``EIDOS_CHAT_BOOT_SNIPPET_CHARS``,
@@ -365,6 +368,8 @@ def _classify_extra_segment(segment: str) -> str:
         return "boot_snippet"
     if s.startswith("— Принципы"):
         return "principles"
+    if s.startswith("— Доступные инструменты"):
+        return "tools_catalog"
     return "other"
 
 
@@ -383,6 +388,7 @@ def _layer_char_counts_from_system_text(sys_text: str) -> dict[str, int]:
         "active_memory": 0,
         "boot_snippet": 0,
         "principles": 0,
+        "tools_catalog": 0,
         "other": 0,
     }
     boundary = _find_first_extra_boundary(sys_text)
@@ -501,6 +507,7 @@ def format_context_metrics_sizes(m: dict[str, Any], *, sep: str = ",") -> str:
         "wm_plan_focus",
         "attention",
         "active_memory",
+        "tools_catalog",
         "boot_snippet",
         "principles",
         "other",
@@ -513,6 +520,7 @@ def format_context_metrics_sizes(m: dict[str, Any], *, sep: str = ",") -> str:
         "wm_plan_focus": "focus",
         "attention": "att",
         "active_memory": "act",
+        "tools_catalog": "tools",
         "boot_snippet": "boot",
         "principles": "pr",
         "other": "other",
@@ -601,8 +609,17 @@ def _build_system_extra_with_budget(
             parts.append(b2)
             rem -= len(b2)
 
-    # Приоритеты: identity -> фокус/план (WM) -> attention -> активная память -> …
+    # Приоритеты: identity -> каталог tools -> фокус/план -> attention -> память -> …
     add(format_user_identity_block(memory))
+    if rem > 0:
+        from cli.tool_catalog import format_tools_catalog_block
+
+        add(
+            format_tools_catalog_block(
+                user_line=user_message,
+                max_chars=min(rem, 4000),
+            )
+        )
     if _env_flag("EIDOS_CHAT_CLI_PLAN", default=True) and rem > 0:
         add(
             format_cli_wm_plan_and_session_block(
@@ -1358,6 +1375,11 @@ def build_chat_context(
 
     parts: list[str] = []
     parts.append(format_user_identity_block(memory))
+    from cli.tool_catalog import format_tools_catalog_block
+
+    cat = format_tools_catalog_block(user_line=user_message, max_chars=4000)
+    if cat:
+        parts.append(cat)
     if _env_flag("EIDOS_CHAT_CLI_PLAN", default=True):
         parts.append(format_cli_wm_plan_and_session_block(memory))
 
@@ -1425,6 +1447,13 @@ def build_chat_messages_for_llm(
         )
     else:
         extra = build_chat_context(memory, cli_session_id, user_message=user_message)
+
+    from cli.tool_catalog import format_tools_catalog_block, tools_catalog_enabled
+
+    if tools_catalog_enabled():
+        cat = format_tools_catalog_block(user_line=user_message, max_chars=4000)
+        if cat and cat not in extra:
+            extra = f"{extra}\n\n{cat}".strip() if extra else cat
 
     system_content = load_project_agents_md().strip()
     if extra:

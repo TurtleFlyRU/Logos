@@ -282,6 +282,61 @@ def _dispatch(req: dict[str, Any]) -> dict[str, Any]:
 
         return _ok({"text": format_memory_help()})
 
+    if op == "tools_help":
+        from cli.tool_catalog import format_tools_help
+
+        return _ok({"text": format_tools_help()})
+
+    if op == "tools_catalog_block":
+        from cli.tool_catalog import format_tools_catalog_block
+
+        line = str(req.get("line") or "")
+        text = format_tools_catalog_block(
+            user_line=(line if line else None),
+            max_chars=int(req.get("max_chars") or 4000),
+        )
+        return _ok({"text": text})
+
+    if op == "tool_search_build_specs":
+        from cli.tool_search import ToolSearchSession, tool_search_enabled
+        from cli.tools import builtin_tool_specs
+
+        if not tool_search_enabled():
+            return _ok({"specs": builtin_tool_specs()})
+        loaded_raw = req.get("loaded")
+        session = ToolSearchSession.start()
+        if isinstance(loaded_raw, list):
+            for item in loaded_raw:
+                name = str(item).strip()
+                if name:
+                    session.loaded.add(name)
+        return _ok({"specs": session.build_api_tool_specs()})
+
+    if op == "tool_search_execute":
+        from cli.tool_search import ToolSearchSession, execute_tool_search
+
+        session = ToolSearchSession.start()
+        loaded_raw = req.get("loaded")
+        if isinstance(loaded_raw, list):
+            for item in loaded_raw:
+                name = str(item).strip()
+                if name:
+                    session.loaded.add(name)
+        raw = req.get("arguments_json")
+        if raw is None:
+            raw = req.get("arguments")
+        if isinstance(raw, dict):
+            args = raw
+        else:
+            try:
+                args = json.loads(str(raw or "{}"))
+            except json.JSONDecodeError as exc:
+                return _err(f"arguments JSON: {exc}")
+        if not isinstance(args, dict):
+            args = {}
+        text, newly = execute_tool_search(session, args)
+        return _ok({"text": text, "loaded": sorted(session.loaded), "newly_loaded": newly})
+
     return _err(f"unknown op: {op!r}")
 
 

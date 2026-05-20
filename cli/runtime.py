@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from typing import TYPE_CHECKING, Any
@@ -39,9 +40,14 @@ def _cli_chat_llm_reply(
 ) -> str | None:
     """Один пользовательский ход: опционально цикл tool_calls и финальный текст."""
     from cli.llm import chat_completion_assistant_message
+    from cli.tool_search import (
+        ToolSearchSession,
+        execute_tool_search,
+        is_tool_search_meta_name,
+        tool_search_enabled,
+    )
     from cli.tools import (
         assistant_message_for_api,
-        builtin_tool_specs,
         execute_tool,
         max_tool_rounds,
         progress_echo_enabled,
@@ -59,13 +65,20 @@ def _cli_chat_llm_reply(
     from kernel.instrumental import InstrumentalRegistry
 
     instrumental = InstrumentalRegistry()
-    tool_specs = builtin_tool_specs()
+    search_session = ToolSearchSession.start() if tool_search_enabled() else None
     max_r = max_tool_rounds()
     rounds = 0
     reply_text = ""
     runtime_params = tool_round_route.runtime_params if tool_round_route is not None else None
     while rounds < max_r:
         rounds += 1
+        from cli.tools import builtin_tool_specs
+
+        tool_specs = (
+            search_session.build_api_tool_specs()
+            if search_session is not None
+            else builtin_tool_specs()
+        )
         amsg = chat_completion_assistant_message(
             messages,
             tools=tool_specs,
@@ -90,10 +103,21 @@ def _cli_chat_llm_reply(
                 args = str(fn.get("arguments") or "{}")
                 tcid = str(tc.get("id") or "")
                 if progress_echo_enabled():
-                    print(f"[eidos] tool {name}", flush=True)
-                result = execute_tool(
-                    name, args, registry=instrumental, memory=memory
-                )
+                    label = f"tool {name}"
+                    if is_tool_search_meta_name(name):
+                        label = "tool_search"
+                    print(f"[eidos] {label}", flush=True)
+                if search_session is not None and is_tool_search_meta_name(name):
+                    try:
+                        raw = json.loads(args or "{}")
+                        parsed = raw if isinstance(raw, dict) else {}
+                    except json.JSONDecodeError:
+                        parsed = {}
+                    result, _newly = execute_tool_search(search_session, parsed)
+                else:
+                    result = execute_tool(
+                        name, args, registry=instrumental, memory=memory
+                    )
                 memory.working.add_event(
                     {
                         "role": "tool",
@@ -186,7 +210,7 @@ def run_chat_interactive(
     short = session_id[:8] + "…"
     print(
         f"Сессия CLI {short} ({session_id}). Команды: /exit, /quit "
-        "| /env | /budget | /pipeline, /run, /review (см. /pipeline help)",
+        "| /env | /budget | /tools | /memory | /pipeline, /run, /review (см. /pipeline help)",
         flush=True,
     )
     print(format_cli_env_report(show_unset=True), flush=True)
@@ -231,6 +255,16 @@ def run_chat_interactive(
             continue
         if low in ("/budget", "/budget now", "/budget all"):
             print(format_chat_budget_report(memory, session_id), flush=True)
+            continue
+        if low == "/tools" or low.startswith("/tools "):
+            from cli.tool_catalog import format_tools_help
+
+            print(format_tools_help(), flush=True)
+            continue
+        if low == "/memory" or low.startswith("/memory "):
+            from cli.memory_tools import format_memory_help
+
+            print(format_memory_help(), flush=True)
             continue
 
         pipe_parsed = parse_chat_pipeline_line(line)
@@ -349,10 +383,22 @@ def run_chat_interactive(
                 allow_tools = tools_allowed_for_chat_line(line)
                 if allow_tools:
                     from cli.tool_routing import resolve_tool_round_route
-                    from cli.tools import builtin_tool_specs, progress_echo_enabled, tools_enabled
+                    from cli.tool_search import ToolSearchSession, tool_search_enabled
+                    from cli.tools import progress_echo_enabled, tools_enabled
 
                     if tools_enabled():
-                        tool_specs = builtin_tool_specs()
+                        sess = (
+                            ToolSearchSession.start()
+                            if tool_search_enabled()
+                            else None
+                        )
+                        from cli.tools import builtin_tool_specs
+
+                        tool_specs = (
+                            sess.build_api_tool_specs()
+                            if sess is not None
+                            else builtin_tool_specs()
+                        )
                         tool_round_route = resolve_tool_round_route(
                             _tool_names_from_specs(tool_specs)
                         )

@@ -169,6 +169,59 @@ impl Sidecar {
         Ok(r.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string())
     }
 
+    pub fn tools_help(&mut self) -> Result<String> {
+        let r = self.call(json!({"op": "tools_help"}))?;
+        Ok(r.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    pub fn tools_catalog_block(&mut self, line: &str, max_chars: u64) -> Result<String> {
+        let r = self.call(json!({
+            "op": "tools_catalog_block",
+            "line": line,
+            "max_chars": max_chars,
+        }))?;
+        Ok(r.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string())
+    }
+
+    pub fn tool_search_build_specs(&mut self, loaded: &[String]) -> Result<Vec<Value>> {
+        let r = self.call(json!({
+            "op": "tool_search_build_specs",
+            "loaded": loaded,
+        }))?;
+        let specs = r
+            .get("specs")
+            .cloned()
+            .unwrap_or(Value::Array(vec![]));
+        serde_json::from_value(specs).map_err(|e| CoreError::Sidecar(format!("specs: {e}")))
+    }
+
+    pub fn tool_search_execute(
+        &mut self,
+        loaded: &[String],
+        arguments_json: &str,
+    ) -> Result<(String, Vec<String>)> {
+        let r = self.call(json!({
+            "op": "tool_search_execute",
+            "loaded": loaded,
+            "arguments_json": arguments_json,
+        }))?;
+        let text = r
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let loaded_out: Vec<String> = r
+            .get("loaded")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok((text, loaded_out))
+    }
+
     pub fn build_chat_messages(
         &mut self,
         session_id: &str,
